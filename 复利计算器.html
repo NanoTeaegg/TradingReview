@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>复利计算器 / Compound Interest Calculator</title>
+<style>
+  body { font-family: sans-serif; padding: 1.5rem; background: #fff; color: #1a1a1a; }
+  .top-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; }
+  h2 { font-size: 18px; font-weight: 500; margin: 0; }
+  .lang-switch { display: flex; border: 0.5px solid #ccc; border-radius: 8px; overflow: hidden; }
+  .lang-switch button { font-size: 13px; padding: 4px 12px; border: none; background: transparent; color: #666; cursor: pointer; }
+  .lang-switch button.active { background: #f5f5f3; color: #1a1a1a; font-weight: 500; }
+  .ci-controls { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 1.5rem; }
+  .ci-ctrl { display: flex; flex-direction: column; gap: 5px; }
+  .ci-ctrl label { font-size: 13px; color: #666; }
+  .ci-ctrl .input-wrap { display: flex; align-items: center; border: 0.5px solid #ccc; border-radius: 8px; overflow: hidden; background: #fff; }
+  .ci-ctrl .input-wrap:focus-within { border-color: #aaa; box-shadow: 0 0 0 2px rgba(0,0,0,0.06); }
+  .ci-ctrl .prefix { font-size: 13px; color: #999; padding: 0 8px 0 10px; user-select: none; }
+  .ci-ctrl .suffix { font-size: 13px; color: #999; padding: 0 10px 0 4px; user-select: none; }
+  .ci-ctrl input[type=number] { flex: 1; border: none; outline: none; font-size: 14px; font-weight: 500; color: #1a1a1a; padding: 8px 4px; width: 0; background: transparent; -moz-appearance: textfield; }
+  .ci-ctrl input[type=number]::-webkit-inner-spin-button,
+  .ci-ctrl input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; }
+  .ci-ctrl .hint { font-size: 11px; color: #bbb; min-height: 14px; }
+  .ci-ctrl .hint.error { color: #E24B4A; }
+  .ci-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 1.5rem; }
+  .ci-stat { background: #f5f5f3; border-radius: 8px; padding: 12px 14px; }
+  .ci-stat .lbl { font-size: 12px; color: #666; margin-bottom: 4px; }
+  .ci-stat .num { font-size: 20px; font-weight: 500; color: #1a1a1a; }
+  .ci-stat .sub { font-size: 11px; color: #999; margin-top: 2px; }
+  .ci-toggle { display: flex; gap: 8px; margin-bottom: 1rem; }
+  .ci-toggle button { font-size: 13px; padding: 4px 12px; border-radius: 8px; border: 0.5px solid #ccc; background: transparent; color: #666; cursor: pointer; }
+  .ci-toggle button.active { background: #f5f5f3; color: #1a1a1a; border-color: #aaa; }
+  .legend { display: flex; gap: 16px; margin-bottom: 8px; font-size: 12px; color: #666; }
+  .legend span { display: flex; align-items: center; gap: 4px; }
+  .legend .swatch { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
+</style>
+</head>
+<body>
+
+<div class="top-bar">
+  <h2 id="title">复利计算器</h2>
+  <div class="lang-switch">
+    <button class="active" onclick="setLang('zh')">中文</button>
+    <button onclick="setLang('en')">EN</button>
+  </div>
+</div>
+
+<div class="ci-controls">
+  <div class="ci-ctrl">
+    <label data-key="principal"></label>
+    <div class="input-wrap">
+      <span class="prefix">¥</span>
+      <input type="number" id="principal" min="0" value="1000000" placeholder="1000000">
+    </div>
+    <div class="hint" id="hint-principal"></div>
+  </div>
+  <div class="ci-ctrl">
+    <label data-key="rate"></label>
+    <div class="input-wrap">
+      <input type="number" id="rate" min="0" max="9999" step="0.1" value="7" placeholder="7" style="padding-left:10px;">
+      <span class="suffix">%</span>
+    </div>
+    <div class="hint" id="hint-rate"></div>
+  </div>
+  <div class="ci-ctrl">
+    <label data-key="years"></label>
+    <div class="input-wrap">
+      <input type="number" id="years" min="1" max="100" step="1" value="20" placeholder="20" style="padding-left:10px;">
+      <span class="suffix" data-key="yrUnit"></span>
+    </div>
+    <div class="hint" id="hint-years"></div>
+  </div>
+  <div class="ci-ctrl">
+    <label data-key="contrib"></label>
+    <div class="input-wrap">
+      <span class="prefix">¥</span>
+      <input type="number" id="contrib" min="0" value="10000" placeholder="0">
+    </div>
+    <div class="hint" id="hint-contrib"></div>
+  </div>
+</div>
+
+<div class="ci-stats">
+  <div class="ci-stat">
+    <div class="lbl" data-key="finalBal"></div>
+    <div class="num" id="finalVal">—</div>
+    <div class="sub" id="finalSub"></div>
+  </div>
+  <div class="ci-stat">
+    <div class="lbl" data-key="totalContrib"></div>
+    <div class="num" id="contribTotal">—</div>
+    <div class="sub" data-key="moneyIn"></div>
+  </div>
+  <div class="ci-stat">
+    <div class="lbl" data-key="interestEarned"></div>
+    <div class="num" id="interestTotal" style="color: #1D9E75;">—</div>
+    <div class="sub" id="interestPct"></div>
+  </div>
+</div>
+
+<div class="ci-toggle">
+  <button class="active" id="btnBar" onclick="setMode('bar')" data-key="growthBtn"></button>
+  <button id="btnPie" onclick="setMode('pie')" data-key="breakdownBtn"></button>
+</div>
+
+<div class="legend" id="legend">
+  <span><span class="swatch" style="background:#B5D4F4;"></span><span data-key="legContrib"></span></span>
+  <span><span class="swatch" style="background:#1D9E75;"></span><span data-key="legInterest"></span></span>
+</div>
+
+<div style="position: relative; width: 100%; height: 280px;">
+  <canvas id="mainChart"></canvas>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script>
+let chartMode = 'bar';
+let chartInstance = null;
+let currentLang = 'zh';
+
+const i18n = {
+  zh: {
+    title: '复利计算器',
+    principal: '初始投资',
+    rate: '年化收益率',
+    years: '年数',
+    yrUnit: '年',
+    contrib: '每月追加',
+    finalBal: '最终余额',
+    totalContrib: '累计投入',
+    moneyIn: '自己的钱',
+    interestEarned: '利息收益',
+    pctOfTotal: '%（占总额）',
+    afterYears: (y) => y + ' 年后',
+    growthBtn: '增长趋势',
+    breakdownBtn: '构成比例',
+    legContrib: '本金',
+    legInterest: '利息',
+    yrLabel: (i) => '第' + i + '年',
+    errYears: '最多 100 年',
+    errPositive: '请输入正数',
+    errRate: '请输入有效利率',
+  },
+  en: {
+    title: 'Compound Interest Calculator',
+    principal: 'Initial investment',
+    rate: 'Annual return',
+    years: 'Years',
+    yrUnit: 'yr',
+    contrib: 'Monthly contribution',
+    finalBal: 'Final balance',
+    totalContrib: 'Total contributed',
+    moneyIn: 'your money in',
+    interestEarned: 'Interest earned',
+    pctOfTotal: '% of total',
+    afterYears: (y) => 'after ' + y + ' years',
+    growthBtn: 'Growth over time',
+    breakdownBtn: 'Breakdown',
+    legContrib: 'Contributions',
+    legInterest: 'Interest',
+    yrLabel: (i) => 'Yr ' + i,
+    errYears: 'Max 100 years',
+    errPositive: 'Enter a positive number',
+    errRate: 'Enter a valid rate',
+  }
+};
+
+function setLang(lang) {
+  currentLang = lang;
+  document.querySelectorAll('.lang-switch button').forEach((b, i) => {
+    b.classList.toggle('active', (i === 0 && lang === 'zh') || (i === 1 && lang === 'en'));
+  });
+  const t = i18n[lang];
+  document.getElementById('title').textContent = t.title;
+  document.querySelectorAll('[data-key]').forEach(el => {
+    const key = el.getAttribute('data-key');
+    if (typeof t[key] === 'string') el.textContent = t[key];
+  });
+  render();
+}
+
+function fmt(n) {
+  if (Math.abs(n) >= 1e9) return '¥' + (n / 1e9).toFixed(2) + 'B';
+  if (Math.abs(n) >= 1e6) return '¥' + (n / 1e6).toFixed(2) + 'M';
+  if (Math.abs(n) >= 1e3) return '¥' + (n / 1e3).toFixed(2) + 'K';
+  return '¥' + Math.round(n).toLocaleString();
+}
+
+function getInputs() {
+  const t = i18n[currentLang];
+  let valid = true;
+
+  const P = parseFloat(document.getElementById('principal').value);
+  const r = parseFloat(document.getElementById('rate').value);
+  const Y = parseInt(document.getElementById('years').value);
+  const c = parseFloat(document.getElementById('contrib').value) || 0;
+
+  const hP = document.getElementById('hint-principal');
+  const hR = document.getElementById('hint-rate');
+  const hY = document.getElementById('hint-years');
+  const hC = document.getElementById('hint-contrib');
+
+  hP.textContent = ''; hP.className = 'hint';
+  hR.textContent = ''; hR.className = 'hint';
+  hY.textContent = ''; hY.className = 'hint';
+  hC.textContent = ''; hC.className = 'hint';
+
+  if (isNaN(P) || P < 0) { hP.textContent = t.errPositive; hP.className = 'hint error'; valid = false; }
+  if (isNaN(r) || r < 0) { hR.textContent = t.errRate; hR.className = 'hint error'; valid = false; }
+  if (isNaN(Y) || Y < 1) { hY.textContent = t.errPositive; hY.className = 'hint error'; valid = false; }
+  else if (Y > 100) { hY.textContent = t.errYears; hY.className = 'hint error'; valid = false; }
+  if (isNaN(c) || c < 0) { hC.textContent = t.errPositive; hC.className = 'hint error'; valid = false; }
+
+  return valid ? { P, r: r / 100, Y, c } : null;
+}
+
+function compute() {
+  const inputs = getInputs();
+  if (!inputs) return null;
+  const { P, r, Y, c } = inputs;
+  const t = i18n[currentLang];
+
+  let balance = P;
+  const principals = [P];
+  const interests = [0];
+
+  for (let y = 1; y <= Y; y++) {
+    balance = balance * (1 + r) + c * 12;
+    const totalPrincipal = P + c * 12 * y;
+    principals.push(totalPrincipal);
+    interests.push(balance - totalPrincipal);
+  }
+
+  const totalContrib = P + c * 12 * Y;
+  const totalInterest = balance - totalContrib;
+
+  document.getElementById('finalVal').textContent = fmt(balance);
+  document.getElementById('finalSub').textContent = t.afterYears(Y);
+  document.getElementById('contribTotal').textContent = fmt(totalContrib);
+  document.getElementById('interestTotal').textContent = fmt(totalInterest);
+  document.getElementById('interestPct').textContent = Math.round(totalInterest / balance * 100) + t.pctOfTotal;
+
+  return { principals, interests, Y, balance, totalContrib, totalInterest };
+}
+
+function setMode(m) {
+  chartMode = m;
+  document.getElementById('btnBar').classList.toggle('active', m === 'bar');
+  document.getElementById('btnPie').classList.toggle('active', m === 'pie');
+  document.getElementById('legend').style.display = m === 'bar' ? 'flex' : 'none';
+  render();
+}
+
+function render() {
+  const result = compute();
+  if (!result) return;
+  const { principals, interests, Y, totalContrib, totalInterest } = result;
+  const t = i18n[currentLang];
+  const labels = Array.from({length: Y + 1}, (_, i) => t.yrLabel(i));
+
+  if (chartInstance) { chartInstance.destroy(); chartInstance = null; }
+
+  if (chartMode === 'bar') {
+    const totals = principals.map((p, i) => p + interests[i]);
+    const balanceLabelPlugin = {
+      id: 'balanceLabels',
+      afterDatasetsDraw(chart) {
+        const { ctx, scales: { x, y } } = chart;
+        ctx.save();
+        ctx.font = '10px sans-serif';
+        ctx.fillStyle = '#5F5E5A';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'bottom';
+        totals.forEach((val, i) => {
+          const xPos = x.getPixelForValue(i);
+          const yPos = y.getPixelForValue(val);
+          ctx.fillText(fmt(val), xPos, yPos - 3);
+        });
+        ctx.restore();
+      }
+    };
+    chartInstance = new Chart(document.getElementById('mainChart'), {
+      type: 'bar',
+      plugins: [balanceLabelPlugin],
+      data: {
+        labels,
+        datasets: [
+          { label: t.legContrib, data: principals, backgroundColor: '#B5D4F4', stack: 's' },
+          { label: t.legInterest, data: interests, backgroundColor: '#1D9E75', stack: 's' }
+        ]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        layout: { padding: { top: 20 } },
+        plugins: { legend: { display: false }, tooltip: {
+          callbacks: { label: ctx => ' ' + ctx.dataset.label + ': ' + fmt(ctx.raw) }
+        }},
+        scales: {
+          x: { stacked: true, ticks: { maxTicksLimit: 11, color: '#888780', font: { size: 11 } }, grid: { display: false } },
+          y: { stacked: true, ticks: { color: '#888780', font: { size: 11 }, callback: v => fmt(v) }, grid: { color: 'rgba(136,135,128,0.15)' } }
+        }
+      }
+    });
+  } else {
+    chartInstance = new Chart(document.getElementById('mainChart'), {
+      type: 'doughnut',
+      data: {
+        labels: [t.legContrib, t.legInterest],
+        datasets: [{ data: [totalContrib, totalInterest], backgroundColor: ['#B5D4F4', '#1D9E75'], borderWidth: 0, hoverOffset: 4 }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        cutout: '68%',
+        plugins: { legend: { display: false }, tooltip: {
+          callbacks: { label: ctx => ' ' + ctx.label + ': ' + fmt(ctx.raw) }
+        }}
+      }
+    });
+  }
+}
+
+['principal', 'rate', 'years', 'contrib'].forEach(id => {
+  document.getElementById(id).addEventListener('input', render);
+});
+
+setLang('zh');
+</script>
+</body>
+</html>
