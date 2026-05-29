@@ -1,0 +1,70 @@
+/* Design Tokens — sourced from docs/UI_SPEC.md, do not modify values here directly */
+:root {
+  /* Background layers */
+  --color-bg-sidebar: #f5f4ed;
+  --color-bg-app: #faf9f5;
+  --color-bg-surface: #ffffff;
+  --color-bg-surface-hover: #f5f4ed;
+  --color-bg-surface-selected: #e8e6dc;
+  --color-bg-tag: #e8e6dc;
+
+  /* Text */
+  --color-text-primary: #141413;
+  --color-text-secondary: #5e5d59;
+  --color-text-tertiary: #87867f;
+  --color-text-disabled: #b0aea5;
+  --color-text-on-dark: #faf9f5;
+  --color-text-on-brand: #faf9f5;
+
+  /* Brand / Primary */
+  --color-primary: #c96442;
+  --color-primary-hover: #b85538;
+  --color-primary-active: #a84828;
+  --color-primary-subtle: rgba(201, 100, 66, 0.08);
+  --color-focus-ring: #3898ec;
+
+  /* Semantic — financial */
+  --color-profit: #16a34a;
+  --color-profit-bg: rgba(22, 163, 74, 0.08);
+  --color-loss: #b53333;
+  --color-loss-bg: rgba(181, 51, 51, 0.08);
+  --color-neutral-market: #5e5d59;
+  --color-success: #16a34a;
+  --color-warning: #d97706;
+  --color-danger: #b53333;
+  --color-info: #5e5d59;
+
+  /* Borders */
+  --color-border-subtle: #f0eee6;
+  --color-border-default: #e8e6dc;
+  --color-border-strong: #d1cfc5;
+
+  /* Chart */
+  --color-chart-portfolio: #c96442;
+  --color-chart-index: #5e5d59;
+  --color-chart-grid: #f0eee6;
+
+  /* Layout */
+  --sidebar-width: 220px;
+  --sidebar-collapsed-width: 64px;
+  --content-padding-x: 32px;
+  --content-padding-y: 32px;
+  --content-max-width: 1400px;
+  --right-panel-width: 400px;
+
+  /* Table */
+  --table-row-height-compact: 36px;
+  --table-row-height-standard: 44px;
+
+  /* z-index */
+  --z-sticky: 100;
+  --z-dropdown: 200;
+  --z-panel: 300;
+  --z-modal: 400;
+  --z-toast: 500;
+
+  /* Motion */
+  --motion-fast: 120ms ease;
+  --motion-medium: 200ms ease;
+  --motion-slow: 300ms ease;
+}
