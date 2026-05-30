@@ -21,10 +21,17 @@ import app.models.review  # noqa: F401
 import app.models.rule  # noqa: F401
 import app.models.trade  # noqa: F401
 
+from datetime import date
+from decimal import Decimal
+
 from sqlalchemy import text
 from app.core.db import SessionLocal
 from app.models.account import Account
+from app.models.cash_flow import CashFlow
 from app.services.importer import import_file
+
+DEMO_INITIAL_DEPOSIT = Decimal("200000.00")
+DEMO_DEPOSIT_DATE = date(2026, 4, 20)  # 首笔交易前一天
 
 DEMO_XLS = pathlib.Path(__file__).parent.parent.parent / "demo" / "20260421_20260528_demo.xls"
 
@@ -58,6 +65,12 @@ def main() -> None:
             print(f"[seed_demo] 「模拟数据」已有 {count} 条交易，跳过导入。")
             print("           若要重新导入，请先删除该账本下的数据或新建数据库。")
             return
+
+        # 插入初始入金（首笔交易前一天）
+        flow = CashFlow(account_id=demo.id, flow_date=DEMO_DEPOSIT_DATE, flow_type="deposit", amount=DEMO_INITIAL_DEPOSIT)
+        db.add(flow)
+        db.commit()
+        print(f"[seed_demo] 已插入初始入金 ¥{DEMO_INITIAL_DEPOSIT:,.0f}（{DEMO_DEPOSIT_DATE}）")
 
         content = DEMO_XLS.read_bytes()
         result = import_file(db, DEMO_XLS.name, content, account_id=demo.id)
