@@ -1,7 +1,7 @@
 """Assemble review prompt and stream from the configured LLM provider."""
 import json
 import logging
-from datetime import date
+from datetime import date, datetime
 from typing import AsyncGenerator, Optional
 
 import httpx
@@ -193,20 +193,39 @@ async def stream_review(
 
     content = "".join(full_content)
     if content:
-        report = ReviewReport(
-            account_id=account_id,
-            scope=scope,
-            trade_id=trade_id,
-            stock_code=stock_code,
-            period_start=period_start,
-            period_end=period_end,
-            content=content,
-            provider=config.provider,
-            model=config.model,
-            rule_version_id=rule_version_id,
-            input_snapshot=json.dumps(snapshot, ensure_ascii=False),
+        q = db.query(ReviewReport).filter(
+            ReviewReport.account_id == account_id,
+            ReviewReport.scope == scope,
         )
-        db.add(report)
+        if scope == "stock":
+            q = q.filter(ReviewReport.stock_code == stock_code)
+        elif scope == "trade":
+            q = q.filter(ReviewReport.trade_id == trade_id)
+        elif scope == "period":
+            q = q.filter(ReviewReport.period_start == period_start, ReviewReport.period_end == period_end)
+        existing = q.first()
+
+        if existing:
+            existing.content = content
+            existing.provider = config.provider
+            existing.model = config.model
+            existing.rule_version_id = rule_version_id
+            existing.input_snapshot = json.dumps(snapshot, ensure_ascii=False)
+            existing.created_at = datetime.utcnow()
+        else:
+            db.add(ReviewReport(
+                account_id=account_id,
+                scope=scope,
+                trade_id=trade_id,
+                stock_code=stock_code,
+                period_start=period_start,
+                period_end=period_end,
+                content=content,
+                provider=config.provider,
+                model=config.model,
+                rule_version_id=rule_version_id,
+                input_snapshot=json.dumps(snapshot, ensure_ascii=False),
+            ))
         db.commit()
 
     yield "data: [DONE]\n\n"

@@ -527,11 +527,28 @@ export function useTagPerformance() {
 
 // ── reviews ──────────────────────────────────────────────────
 
+export interface ReviewDetail extends Review {
+  content: string
+  provider: string
+  rule_version_id: number | null
+  input_snapshot: string | null
+  period_start: string | null
+  period_end: string | null
+}
+
 export function useReviews() {
   const { queryKey } = useAccountScopedKey(['reviews'])
   return useQuery<Review[]>({
     queryKey,
     queryFn: () => api.get('/api/reviews').then(r => r.data),
+  })
+}
+
+export function useReviewDetail(id: number | null) {
+  return useQuery<ReviewDetail>({
+    queryKey: ['reviews', id],
+    queryFn: () => api.get(`/api/reviews/${id}`).then(r => r.data),
+    enabled: id != null,
   })
 }
 
