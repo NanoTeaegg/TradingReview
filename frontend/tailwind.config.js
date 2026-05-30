@@ -34,9 +34,9 @@ export default {
         'border-strong': 'var(--color-border-strong)',
       },
       fontFamily: {
-        serif: ['Georgia', 'Noto Serif SC', 'serif'],
-        sans: ['Inter', 'Noto Sans SC', '-apple-system', 'sans-serif'],
-        mono: ['JetBrains Mono', 'Fira Code', 'monospace'],
+        serif: ['Anthropic Serif', 'Noto Serif SC', 'Georgia', 'serif'],
+        sans: ['Anthropic Sans', 'Noto Sans SC', '-apple-system', 'sans-serif'],
+        mono: ['Anthropic Mono', 'JetBrains Mono', 'monospace'],
       },
       borderRadius: {
         xs: '4px',
@@ -57,4 +57,3 @@ export default {
   },
   plugins: [],
 }
-

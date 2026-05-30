@@ -72,7 +72,12 @@ export default function ReviewDetail() {
         <span style={{ color: 'var(--color-text-primary)' }}>{title}</span>
       </nav>
 
-      <h1 className="font-serif text-2xl font-medium" style={{ color: 'var(--color-text-primary)' }}>{title}</h1>
+      <h1
+        className="font-serif font-medium"
+        style={{ color: 'var(--color-text-primary)', fontSize: 'var(--font-size-page-title)', lineHeight: 1.25 }}
+      >
+        {title}
+      </h1>
 
       {/* Section 1: Trade summary */}
       {trade && (
@@ -198,7 +203,7 @@ export default function ReviewDetail() {
           <div
             className="prose max-w-none"
             style={{
-              fontFamily: 'Georgia, "Noto Serif SC", serif',
+              fontFamily: 'var(--font-family-serif)',
               fontSize: 16,
               lineHeight: 1.75,
               color: 'var(--color-text-primary)',

@@ -76,7 +76,12 @@ export default function Settings() {
 
   return (
     <div className="flex flex-col gap-8 max-w-2xl">
-      <h1 className="font-serif text-2xl font-medium" style={{ color: 'var(--color-text-primary)' }}>设置</h1>
+      <h1
+        className="font-serif font-medium"
+        style={{ color: 'var(--color-text-primary)', fontSize: 'var(--font-size-page-title)', lineHeight: 1.25 }}
+      >
+        设置
+      </h1>
 
       {/* Ollama config */}
       <section>

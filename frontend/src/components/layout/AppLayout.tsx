@@ -1,16 +1,15 @@
 import { Outlet } from 'react-router-dom'
-import Sidebar from './Sidebar'
+import Topbar from './Topbar'
 
 export default function AppLayout() {
   return (
-    <div className="flex h-full">
-      <Sidebar />
+    <>
+      <Topbar />
       <main
-        className="flex-1 overflow-y-auto"
         style={{
-          marginLeft: 'var(--sidebar-width)',
-          background: 'var(--color-bg-app)',
+          paddingTop: 'var(--topbar-height)',
           minHeight: '100vh',
+          background: 'var(--color-bg-app)',
         }}
       >
         <div
@@ -23,6 +22,6 @@ export default function AppLayout() {
           <Outlet />
         </div>
       </main>
-    </div>
+    </>
   )
 }

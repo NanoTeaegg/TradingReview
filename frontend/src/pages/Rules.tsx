@@ -27,7 +27,7 @@ const PLACEHOLDER = `# 仓位管理
 
 function renderMarkdown(text: string): string {
   return text
-    .replace(/^# (.+)$/gm, '<h2 style="font-size:18px;font-weight:600;margin:24px 0 8px;color:var(--color-text-primary);font-family:\'Inter\',sans-serif;padding-bottom:8px;border-bottom:1px solid var(--color-border-subtle)">$1</h2>')
+    .replace(/^# (.+)$/gm, '<h2 style="font-size:18px;font-weight:600;margin:24px 0 8px;color:var(--color-text-primary);font-family:var(--font-family-sans);padding-bottom:8px;border-bottom:1px solid var(--color-border-subtle)">$1</h2>')
     .replace(/^## (.+)$/gm, '<h3 style="font-size:16px;font-weight:600;margin:20px 0 6px;color:var(--color-text-primary)">$1</h3>')
     .replace(/^- (.+)$/gm, '<li style="margin:4px 0;padding-left:4px;color:var(--color-text-primary)">$1</li>')
     .replace(/(<li.*<\/li>\n?)+/gs, '<ul style="padding-left:20px;margin:8px 0">$&</ul>')
@@ -72,7 +72,12 @@ export default function Rules() {
   return (
     <div className="flex flex-col gap-0 h-full">
       <div className="flex items-center justify-between mb-6">
-        <h1 className="font-serif text-2xl font-medium" style={{ color: 'var(--color-text-primary)' }}>交易规则</h1>
+        <h1
+          className="font-serif font-medium"
+          style={{ color: 'var(--color-text-primary)', fontSize: 'var(--font-size-page-title)', lineHeight: 1.25 }}
+        >
+          交易规则
+        </h1>
         <div className="flex items-center gap-2">
           <button
             className="flex items-center gap-1.5 px-3 h-8 rounded text-xs transition-colors duration-[120ms]"
@@ -125,7 +130,7 @@ export default function Rules() {
             <div
               className="flex-1 p-6 overflow-y-auto"
               style={{
-                fontFamily: 'Georgia, "Noto Serif SC", serif',
+                fontFamily: 'var(--font-family-serif)',
                 fontSize: 16,
                 lineHeight: 1.75,
                 color: 'var(--color-text-primary)',

@@ -1,3 +1,18 @@
+/* Anthropic brand fonts — from anthropic-fonts@1.1.0 (MIT) */
+@font-face { font-family: 'Anthropic Serif'; src: url('/fonts/AnthropicSerif@300.woff2') format('woff2'); font-weight: 300; font-style: normal; font-display: swap; }
+@font-face { font-family: 'Anthropic Serif'; src: url('/fonts/AnthropicSerif@400.woff2') format('woff2'); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: 'Anthropic Serif'; src: url('/fonts/AnthropicSerif@500.woff2') format('woff2'); font-weight: 500; font-style: normal; font-display: swap; }
+@font-face { font-family: 'Anthropic Serif'; src: url('/fonts/AnthropicSerif@600.woff2') format('woff2'); font-weight: 600; font-style: normal; font-display: swap; }
+@font-face { font-family: 'Anthropic Serif'; src: url('/fonts/AnthropicSerif@700.woff2') format('woff2'); font-weight: 700; font-style: normal; font-display: swap; }
+
+@font-face { font-family: 'Anthropic Sans'; src: url('/fonts/AnthropicSans@300.woff2') format('woff2'); font-weight: 300; font-style: normal; font-display: swap; }
+@font-face { font-family: 'Anthropic Sans'; src: url('/fonts/AnthropicSans@400.woff2') format('woff2'); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: 'Anthropic Sans'; src: url('/fonts/AnthropicSans@500.woff2') format('woff2'); font-weight: 500; font-style: normal; font-display: swap; }
+@font-face { font-family: 'Anthropic Sans'; src: url('/fonts/AnthropicSans@600.woff2') format('woff2'); font-weight: 600; font-style: normal; font-display: swap; }
+@font-face { font-family: 'Anthropic Sans'; src: url('/fonts/AnthropicSans@700.woff2') format('woff2'); font-weight: 700; font-style: normal; font-display: swap; }
+
+@font-face { font-family: 'Anthropic Mono'; src: url('/fonts/AnthropicMono@400.woff2') format('woff2'); font-weight: 400; font-style: normal; font-display: swap; }
+
 /* Design Tokens — sourced from docs/UI_SPEC.md, do not modify values here directly */
 :root {
   /* Background layers */
@@ -44,11 +59,25 @@
   --color-chart-index: #5e5d59;
   --color-chart-grid: #f0eee6;
 
+  /* Typography */
+  --font-family-serif: 'Anthropic Serif', 'Noto Serif SC', Georgia, serif;
+  --font-family-sans: 'Anthropic Sans', 'Noto Sans SC', -apple-system, sans-serif;
+  --font-family-mono: 'Anthropic Mono', 'JetBrains Mono', monospace;
+  --font-size-brand-wordmark: 34px;
+  --font-size-page-title: 32px;
+  --font-size-section-title: 22px;
+  --font-size-panel-title: 18px;
+  --font-size-module-switch: 14px;
+
+  /* Spacing */
+  --space-6: 24px;
+
   /* Layout */
-  --sidebar-width: 220px;
-  --sidebar-collapsed-width: 64px;
-  --content-padding-x: 32px;
-  --content-padding-y: 32px;
+  --topbar-height: 116px;
+  --topbar-primary-max-width: 1400px;
+  --topbar-secondary-max-width: 1400px;
+  --content-padding-x: 40px;
+  --content-padding-y: 36px;
   --content-max-width: 1400px;
   --right-panel-width: 400px;
 

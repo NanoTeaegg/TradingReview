@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ArrowUpDown, Bot, AlertTriangle } from 'lucide-react'
+import { AlertTriangle, ArrowUpDown, Bot } from 'lucide-react'
 import PnlNumber from '@/components/shared/PnlNumber'
 import { Skeleton } from '@/components/ui/skeleton'
 import { formatAmount, formatPct } from '@/lib/format'
@@ -8,7 +8,7 @@ import { mockHoldings } from '@/lib/mock'
 
 type SortKey = 'float_pnl' | 'market_value' | 'float_pnl_rate'
 
-export default function Holdings() {
+export default function HoldingsSection() {
   const navigate = useNavigate()
   const [sortKey, setSortKey] = useState<SortKey>('float_pnl')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
@@ -24,8 +24,11 @@ export default function Holdings() {
   const totalFloatPnl = holdings.reduce((s, h) => s + h.float_pnl, 0)
 
   function toggleSort(key: SortKey) {
-    if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
-    else { setSortKey(key); setSortDir('desc') }
+    if (sortKey === key) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
+    else {
+      setSortKey(key)
+      setSortDir('desc')
+    }
   }
 
   const ThBtn = ({ col, label }: { col: SortKey; label: string }) => (
@@ -41,33 +44,46 @@ export default function Holdings() {
 
   if (holdings.length === 0) {
     return (
-      <div className="flex flex-col gap-6">
-        <h1 className="font-serif text-2xl font-medium" style={{ color: 'var(--color-text-primary)' }}>持仓</h1>
-        <div className="flex flex-col items-center justify-center py-24 gap-3">
+      <section id="holdings-summary" className="flex flex-col gap-4">
+        <h2 className="text-lg font-semibold" style={{ color: 'var(--color-text-primary)' }}>
+          当前持仓
+        </h2>
+        <div className="flex flex-col items-center justify-center rounded-lg py-20 gap-3" style={{ border: '1px solid var(--color-border-subtle)', background: 'var(--color-bg-surface)' }}>
           <p className="text-sm" style={{ color: 'var(--color-text-tertiary)' }}>暂无持仓数据。导入成交记录后，持仓将自动计算。</p>
-          <button className="text-sm underline" style={{ color: 'var(--color-primary)' }} onClick={() => navigate('/')}>
-            去总览页导入
-          </button>
+          <a className="text-sm underline" style={{ color: 'var(--color-primary)' }} href="#import-upload">
+            去上传成交文件
+          </a>
         </div>
-      </div>
+      </section>
     )
   }
 
   return (
-    <div className="flex flex-col gap-6">
-      <h1 className="font-serif text-2xl font-medium" style={{ color: 'var(--color-text-primary)' }}>持仓</h1>
+    <section id="holdings-summary" className="flex flex-col gap-4">
+      <div className="flex items-end justify-between gap-4">
+        <div>
+          <h2 className="text-lg font-semibold" style={{ color: 'var(--color-text-primary)' }}>
+            当前持仓
+          </h2>
+          <p className="mt-1 text-sm" style={{ color: 'var(--color-text-secondary)' }}>
+            持仓明细已合并到总览页底部，便于从账户表现一路扫到单票浮盈。
+          </p>
+        </div>
+        {marketLoading && (
+          <span className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>行情更新中...</span>
+        )}
+      </div>
 
       {marketError && (
-        <div className="flex items-center gap-3 px-4 py-3 rounded-lg text-sm" style={{
-          background: 'rgba(217,119,6,0.06)',
-          borderLeft: '4px solid var(--color-warning)',
-        }}>
+        <div
+          className="flex items-center gap-3 px-4 py-3 rounded-lg text-sm"
+          style={{ background: 'rgba(217,119,6,0.06)', borderLeft: '4px solid var(--color-warning)' }}
+        >
           <AlertTriangle size={14} style={{ color: 'var(--color-warning)' }} />
           <span style={{ color: 'var(--color-text-primary)' }}>行情获取失败，市值与浮动盈亏无法计算</span>
         </div>
       )}
 
-      {/* Summary row */}
       <div className="flex gap-6 text-sm">
         <div>
           <span style={{ color: 'var(--color-text-tertiary)' }}>总持仓市值 </span>
@@ -81,12 +97,8 @@ export default function Holdings() {
           <span style={{ color: 'var(--color-text-tertiary)' }}>持仓股票数 </span>
           <span className="font-semibold tabular-nums" style={{ color: 'var(--color-text-primary)' }}>{holdings.length}</span>
         </div>
-        {marketLoading && (
-          <span className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>行情更新中...</span>
-        )}
       </div>
 
-      {/* Table */}
       <div className="rounded-lg overflow-hidden" style={{ border: '1px solid var(--color-border-subtle)' }}>
         <table className="w-full text-sm">
           <thead>
@@ -97,8 +109,11 @@ export default function Holdings() {
                 { label: '持仓均价', align: 'right' },
                 { label: '最新价', align: 'right' },
               ].map(({ label, align }) => (
-                <th key={label} className={`px-4 py-2.5 text-xs font-medium uppercase tracking-wide text-${align}`}
-                  style={{ color: 'var(--color-text-secondary)', borderBottom: '1px solid var(--color-border-subtle)' }}>
+                <th
+                  key={label}
+                  className={`px-4 py-2.5 text-xs font-medium uppercase tracking-wide text-${align}`}
+                  style={{ color: 'var(--color-text-secondary)', borderBottom: '1px solid var(--color-border-subtle)' }}
+                >
                   {label}
                 </th>
               ))}
@@ -122,8 +137,8 @@ export default function Holdings() {
                 key={h.stock_code}
                 className="transition-colors duration-[120ms] group"
                 style={{ borderBottom: '1px solid var(--color-border-subtle)' }}
-                onMouseEnter={e => (e.currentTarget.style.background = 'var(--color-bg-surface-hover)')}
-                onMouseLeave={e => (e.currentTarget.style.background = 'var(--color-bg-surface)')}
+                onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--color-bg-surface-hover)')}
+                onMouseLeave={(e) => (e.currentTarget.style.background = 'var(--color-bg-surface)')}
               >
                 <td className="px-4" style={{ height: 44 }}>
                   <div className="flex flex-col">
@@ -144,14 +159,10 @@ export default function Holdings() {
                   {marketLoading ? <Skeleton className="h-4 w-20 ml-auto" /> : formatAmount(h.market_value)}
                 </td>
                 <td className="px-4 text-right">
-                  {marketLoading ? <Skeleton className="h-4 w-20 ml-auto" /> : (
-                    <PnlNumber value={h.float_pnl} formatter={formatAmount} />
-                  )}
+                  {marketLoading ? <Skeleton className="h-4 w-20 ml-auto" /> : <PnlNumber value={h.float_pnl} formatter={formatAmount} />}
                 </td>
                 <td className="px-4 text-right">
-                  {marketLoading ? <Skeleton className="h-4 w-14 ml-auto" /> : (
-                    <PnlNumber value={h.float_pnl_rate} formatter={formatPct} />
-                  )}
+                  {marketLoading ? <Skeleton className="h-4 w-14 ml-auto" /> : <PnlNumber value={h.float_pnl_rate} formatter={formatPct} />}
                 </td>
                 <td className="px-4 text-center">
                   <button
@@ -168,6 +179,6 @@ export default function Holdings() {
           </tbody>
         </table>
       </div>
-    </div>
+    </section>
   )
 }

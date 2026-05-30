@@ -1,0 +1,88 @@
+<h2>TradingReview 品牌区方向</h2>
+<p class="subtitle">请看 logo 的朝向、简洁程度，以及字标是否接近第二张图那种比例。可以点击一个方案，也可以直接告诉我哪里要调。</p>
+
+<style>
+  .brand-options { display: grid; gap: 18px; }
+  .brand-card { padding: 0; overflow: hidden; }
+  .topbar-preview {
+    height: 72px; display: flex; align-items: center; gap: 28px;
+    padding: 0 32px; background: #f5f4ed; border-bottom: 1px solid #e8e6dc;
+  }
+  .brand-lockup { display: flex; align-items: center; gap: 14px; min-width: 380px; }
+  .wordmark {
+    color: #141413; font-family: Georgia, "Times New Roman", serif;
+    font-weight: 700; letter-spacing: -0.01em; line-height: 1; white-space: nowrap;
+  }
+  .wordmark.a { font-size: 34px; }
+  .wordmark.b { font-size: 31px; font-weight: 650; }
+  .wordmark.c { font-size: 30px; letter-spacing: 0; }
+  .nav-ghost {
+    display: flex; gap: 30px; color: #5e5d59;
+    font: 600 17px/1.2 -apple-system, BlinkMacSystemFont, "Noto Sans SC", sans-serif;
+  }
+  .notes { padding: 14px 18px 18px; color: #5e5d59; font-size: 14px; }
+  .notes strong { color: #141413; }
+</style>
+
+<div class="cards brand-options">
+  <div class="card brand-card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="topbar-preview">
+      <div class="brand-lockup">
+        <svg width="44" height="44" viewBox="0 0 44 44" fill="none" aria-hidden>
+          <path d="M18.2 10.5C15 7.5 12.7 4.7 10.5 2.4" stroke="#c96442" stroke-width="3.1" stroke-linecap="round"/>
+          <path d="M28.7 11.8C29.5 7.9 31.2 5.1 33.6 2.8" stroke="#c96442" stroke-width="3.1" stroke-linecap="round"/>
+          <path d="M11.2 21.6C7.6 19.7 6.4 16.1 7.4 12.4C10.5 13.8 12.2 17.1 11.2 21.6Z" fill="#c96442"/>
+          <path d="M34 23.2C37 20.9 38 17.6 36.9 14.1C34.4 15.5 33 18.8 34 23.2Z" fill="#c96442"/>
+          <path d="M8.6 26.1C8.6 16.7 15 11.4 24.2 11.4C31.8 11.4 36.5 16.4 36.5 24.8C36.5 34.3 29.8 40.2 21.4 40.2C13.6 40.2 8.6 34.5 8.6 26.1Z" fill="#c96442"/>
+          <circle cx="18.3" cy="24.3" r="2.5" fill="#faf9f5"/>
+          <circle cx="29.4" cy="23.5" r="2.1" fill="#faf9f5"/>
+          <ellipse cx="19" cy="33.3" rx="2" ry="1.25" fill="rgba(250,249,245,.48)"/>
+          <ellipse cx="26.3" cy="33" rx="2" ry="1.25" fill="rgba(250,249,245,.48)"/>
+        </svg>
+        <div class="wordmark a">Trading Review</div>
+      </div>
+      <div class="nav-ghost"><span>总览</span><span>持仓</span><span>盈亏</span><span>流水</span></div>
+    </div>
+    <div class="notes"><strong>A 推荐：</strong>左向牛牛头像，保留可爱感但去掉复杂线条；字标改为大号衬线，比例最接近第二张参考。</div>
+  </div>
+
+  <div class="card brand-card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="topbar-preview">
+      <div class="brand-lockup">
+        <svg width="42" height="42" viewBox="0 0 44 44" fill="none" aria-hidden>
+          <path d="M17 11C13.5 8 11.4 5.2 9.4 2.8" stroke="#c96442" stroke-width="3" stroke-linecap="round"/>
+          <path d="M28 11.2C29.8 7.4 32 5.3 34.4 3.2" stroke="#c96442" stroke-width="3" stroke-linecap="round"/>
+          <path d="M9.3 25.2C9.3 16.4 15.6 11.6 24 11.6C31.9 11.6 36.1 16.5 36.1 24.5C36.1 34.1 29.5 39.5 21.5 39.5C14.2 39.5 9.3 34.1 9.3 25.2Z" fill="#c96442"/>
+          <path d="M10.8 20.9C7.8 19.3 6.6 16.1 7.5 13.4" stroke="#c96442" stroke-width="3" stroke-linecap="round"/>
+          <circle cx="18.4" cy="24.1" r="2.5" fill="#faf9f5"/>
+          <path d="M28.4 22.5C30 22.5 31 23.4 31 24.7" stroke="#faf9f5" stroke-width="2.4" stroke-linecap="round"/>
+          <path d="M18.5 33.2H26.6" stroke="rgba(250,249,245,.52)" stroke-width="2.6" stroke-linecap="round" stroke-dasharray="1 6"/>
+        </svg>
+        <div class="wordmark b">Trading Review</div>
+      </div>
+      <div class="nav-ghost"><span>总览</span><span>持仓</span><span>盈亏</span><span>流水</span></div>
+    </div>
+    <div class="notes"><strong>B 更简：</strong>更少五官细节，偏 app icon，远看辨识度强，但牛牛性格会弱一点。</div>
+  </div>
+
+  <div class="card brand-card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="topbar-preview">
+      <div class="brand-lockup">
+        <svg width="40" height="40" viewBox="0 0 44 44" fill="none" aria-hidden>
+          <path d="M15.4 12C13.4 8.3 13.9 5.2 11.4 2.5" stroke="#c96442" stroke-width="2.9" stroke-linecap="round"/>
+          <path d="M27.7 12C29.7 8.3 29.2 5.2 31.7 2.5" stroke="#c96442" stroke-width="2.9" stroke-linecap="round"/>
+          <path d="M8.8 23.3C5.7 21.3 4.8 17.4 6.7 13.9C8.9 16.1 9.8 19.6 8.8 23.3Z" fill="#c96442"/>
+          <path d="M34.3 23.3C37.4 21.3 38.3 17.4 36.4 13.9C34.2 16.1 33.3 19.6 34.3 23.3Z" fill="#c96442"/>
+          <path d="M8.7 25.5C8.7 16.2 14.1 11.5 22 11.5C29.9 11.5 35.3 16.2 35.3 25.5C35.3 34.2 29.9 39.5 22 39.5C14.1 39.5 8.7 34.2 8.7 25.5Z" fill="#c96442"/>
+          <circle cx="17.7" cy="25" r="2.5" fill="#faf9f5"/>
+          <circle cx="26.3" cy="25" r="2.5" fill="#faf9f5"/>
+          <ellipse cx="18.8" cy="33.5" rx="2" ry="1.2" fill="rgba(250,249,245,.42)"/>
+          <ellipse cx="25.2" cy="33.5" rx="2" ry="1.2" fill="rgba(250,249,245,.42)"/>
+        </svg>
+        <div class="wordmark c">TradingReview</div>
+      </div>
+      <div class="nav-ghost"><span>总览</span><span>持仓</span><span>盈亏</span><span>流水</span></div>
+    </div>
+    <div class="notes"><strong>C 稳妥：</strong>当前正面牛的精修版，风险最低，但没有实现“朝左”的主要变化。</div>
+  </div>
+</div>

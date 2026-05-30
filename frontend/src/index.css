@@ -13,8 +13,9 @@
     margin: 0;
     padding: 0;
     height: 100%;
-    font-family: 'Inter', 'Noto Sans SC', -apple-system, sans-serif;
-    font-size: 14px;
+    overflow-y: scroll;
+    font-family: 'Anthropic Sans', 'Noto Sans SC', -apple-system, sans-serif;
+    font-size: 16px;
     line-height: 1.6;
     color: var(--color-text-primary);
     background-color: var(--color-bg-app);

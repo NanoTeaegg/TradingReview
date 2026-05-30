@@ -21,7 +21,12 @@ export default function Reviews() {
   return (
     <div className="flex flex-col gap-6">
       <div className="flex items-center justify-between">
-        <h1 className="font-serif text-2xl font-medium" style={{ color: 'var(--color-text-primary)' }}>复盘报告</h1>
+        <h1
+          className="font-serif font-medium"
+          style={{ color: 'var(--color-text-primary)', fontSize: 'var(--font-size-page-title)', lineHeight: 1.25 }}
+        >
+          复盘报告
+        </h1>
         <button
           className="flex items-center gap-2 px-4 h-9 rounded-md text-sm font-medium transition-colors duration-[120ms]"
           style={{ background: 'var(--color-bg-surface-selected)', color: 'var(--color-text-primary)', border: '1px solid var(--color-border-default)' }}
@@ -62,7 +67,7 @@ export default function Reviews() {
       {mockReviews.length === 0 ? (
         <div className="flex flex-col items-center py-24 gap-3">
           <p className="text-sm" style={{ color: 'var(--color-text-tertiary)' }}>
-            还没有复盘报告。从持仓页或流水页触发第一次 AI 复盘。
+            还没有复盘报告。从总览页持仓区块或流水页触发第一次 AI 复盘。
           </p>
         </div>
       ) : (

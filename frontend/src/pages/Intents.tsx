@@ -66,7 +66,12 @@ export default function Intents() {
 
   return (
     <div className="flex flex-col gap-6">
-      <h1 className="font-serif text-2xl font-medium" style={{ color: 'var(--color-text-primary)' }}>交易意图</h1>
+      <h1
+        className="font-serif font-medium"
+        style={{ color: 'var(--color-text-primary)', fontSize: 'var(--font-size-page-title)', lineHeight: 1.25 }}
+      >
+        交易意图
+      </h1>
 
       {/* Tabs */}
       <div className="flex" style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
