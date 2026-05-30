@@ -1,1 +1,10 @@
 tradinghistory/
+.specstory/
+
+# 数据库文件（包含个人交易数据，不提交）
+backend/tradingreview.db
+backend/tradingreview.db-shm
+backend/tradingreview.db-wal
+backend/*.db
+backend/*.db-shm
+backend/*.db-wal
