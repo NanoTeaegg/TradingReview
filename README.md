@@ -1,13 +1,20 @@
 # TradingReview
 
+[![stars](https://img.shields.io/github/stars/NanoTeaegg/TradingReview?style=flat-square&label=stars)](https://github.com/NanoTeaegg/TradingReview/stargazers)
+[![license](https://img.shields.io/github/license/NanoTeaegg/TradingReview?style=flat-square&label=license)](https://github.com/NanoTeaegg/TradingReview/blob/main/LICENSE)
+[![type](https://img.shields.io/badge/Type-Trading%20Journal-212121?style=flat-square)](https://github.com/NanoTeaegg/TradingReview)
+[![market](https://img.shields.io/badge/Market-A%E8%82%A1-E53935?style=flat-square)](https://github.com/NanoTeaegg/TradingReview)
+[![frontend](https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react&logoColor=white)](https://github.com/NanoTeaegg/TradingReview/tree/main/frontend)
+[![backend](https://img.shields.io/badge/FastAPI-Python-009688?style=flat-square&logo=fastapi&logoColor=white)](https://github.com/NanoTeaegg/TradingReview/tree/main/backend)
+[![llm](https://img.shields.io/badge/LLM-Ollama%20%7C%20OpenAI-7C3AED?style=flat-square)](https://github.com/NanoTeaegg/TradingReview)
+[![deploy](https://img.shields.io/badge/Deploy-Local-4CAF50?style=flat-square)](https://github.com/NanoTeaegg/TradingReview)
+
 > 把券商流水变成可复盘的交易日记  
 > Turn broker exports into a reviewable trading journal
 
 TradingReview 是一款面向个人 A 股投资者的本地复盘工具。支持导入同花顺等券商导出的成交历史，自动完成盈亏配对、持仓成本与资金曲线计算，并可记录每笔交易的标签、信心度与交易思路。内置交易总览、当日持仓、复盘统计与 AI 股票复盘，帮助把「原始流水 + 交易意图 + 数据洞察」串成完整复盘闭环。
 
 TradingReview is a local review tool for individual A-share investors. Import trade history exported from brokers such as Tonghuashun to get automatic P&L matching, cost basis, holdings, and equity curve calculations. Annotate each trade with tags, confidence levels, and rationale. Dashboard, daily holdings, review analytics, and AI-powered stock reviews connect raw trades, trading intent, and data-driven insights into one review workflow.
-
-**Topics:** `trading` · `stock-market` · `a-share` · `portfolio` · `fastapi` · `react` · `llm` · `trading-journal` · `personal-finance`
 
 ## 快速开始
 
