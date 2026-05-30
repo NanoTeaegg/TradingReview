@@ -107,7 +107,7 @@ export default function ReviewDetail() {
         {trade || holding ? (
           <div className="flex gap-8 text-sm">
             <div>
-              <p className="text-xs mb-1" style={{ color: 'var(--color-text-tertiary)' }}>当前浮动盈亏</p>
+              <p className="text-xs mb-1" style={{ color: 'var(--color-text-tertiary)' }}>当前持仓盈亏</p>
               <PnlNumber
                 value={holding?.float_pnl ?? (trade ? 16450 : null)}
                 formatter={formatAmount}
@@ -115,7 +115,7 @@ export default function ReviewDetail() {
               />
             </div>
             <div>
-              <p className="text-xs mb-1" style={{ color: 'var(--color-text-tertiary)' }}>浮动盈亏率</p>
+              <p className="text-xs mb-1" style={{ color: 'var(--color-text-tertiary)' }}>持仓盈亏率</p>
               <PnlNumber
                 value={holding?.float_pnl_rate ?? (trade ? 0.108 : null)}
                 formatter={formatPct}

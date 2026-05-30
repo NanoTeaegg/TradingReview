@@ -2,13 +2,14 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Plus, FileText, TrendingUp, Clock } from 'lucide-react'
 import { formatDatetime } from '@/lib/format'
-import { mockReviews } from '@/lib/mock'
+import { useReviews } from '@/lib/queries'
 
 const scopeIcon = { stock: TrendingUp, trade: FileText, period: Clock }
 const scopeLabel = { stock: '单股', trade: '单笔', period: '时段' }
 
 export default function Reviews() {
   const navigate = useNavigate()
+  const { data: reviews = [] } = useReviews()
   const [showNewPeriod, setShowNewPeriod] = useState(false)
   const [fromDate, setFromDate] = useState('')
   const [toDate, setToDate] = useState('')
@@ -64,7 +65,7 @@ export default function Reviews() {
         </div>
       )}
 
-      {mockReviews.length === 0 ? (
+      {reviews.length === 0 ? (
         <div className="flex flex-col items-center py-24 gap-3">
           <p className="text-sm" style={{ color: 'var(--color-text-tertiary)' }}>
             还没有复盘报告。从总览页持仓区块或流水页触发第一次 AI 复盘。
@@ -72,14 +73,14 @@ export default function Reviews() {
         </div>
       ) : (
         <div className="rounded-lg overflow-hidden" style={{ border: '1px solid var(--color-border-subtle)' }}>
-          {mockReviews.map((r, i) => {
+          {reviews.map((r, i) => {
             const Icon = scopeIcon[r.scope as keyof typeof scopeIcon] ?? FileText
             return (
               <div key={r.id}
                 className="flex items-center gap-4 px-4 py-3 cursor-pointer transition-colors duration-[120ms]"
                 style={{
                   background: 'var(--color-bg-surface)',
-                  borderBottom: i < mockReviews.length - 1 ? '1px solid var(--color-border-subtle)' : undefined,
+                  borderBottom: i < reviews.length - 1 ? '1px solid var(--color-border-subtle)' : undefined,
                 }}
                 onMouseEnter={e => (e.currentTarget.style.background = 'var(--color-bg-surface-hover)')}
                 onMouseLeave={e => (e.currentTarget.style.background = 'var(--color-bg-surface)')}

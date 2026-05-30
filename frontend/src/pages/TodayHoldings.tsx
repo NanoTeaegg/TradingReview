@@ -4,10 +4,31 @@ import { ArrowUpDown, Bot, AlertTriangle } from 'lucide-react'
 import PnlNumber from '@/components/shared/PnlNumber'
 import { Skeleton } from '@/components/ui/skeleton'
 import { formatAmount, formatPct } from '@/lib/format'
-import { mockHoldings, mockMarketSentiment } from '@/lib/mock'
+import { usePositions, useSentiment, n } from '@/lib/queries'
 
 type SortKey = 'float_pnl' | 'market_value' | 'float_pnl_rate'
 const NOTE_KEY = 'trading_note_tomorrow'
+
+function SortHeader({
+  col,
+  label,
+  onSort,
+}: {
+  col: SortKey
+  label: string
+  onSort: (key: SortKey) => void
+}) {
+  return (
+    <button
+      className="flex items-center gap-1 text-xs font-medium uppercase tracking-wide"
+      style={{ color: 'var(--color-text-secondary)' }}
+      onClick={() => onSort(col)}
+    >
+      {label}
+      <ArrowUpDown size={12} />
+    </button>
+  )
+}
 
 // ── 盘面解析 ──────────────────────────────────────────────────
 
@@ -37,7 +58,19 @@ function StatRow({ label, value, color }: { label: string; value: string | numbe
 }
 
 function MarketSection() {
-  const s = mockMarketSentiment
+  const { data: s, isLoading } = useSentiment()
+
+  if (isLoading || !s) {
+    return (
+      <section className="flex flex-col gap-4">
+        <h2 className="text-lg font-semibold" style={{ color: 'var(--color-text-primary)' }}>盘面解析</h2>
+        <div className="grid grid-cols-3 gap-5">
+          {[0, 1, 2].map(i => <Skeleton key={i} className="h-40 rounded-lg" />)}
+        </div>
+      </section>
+    )
+  }
+
   return (
     <section className="flex flex-col gap-4">
       <h2 className="text-lg font-semibold" style={{ color: 'var(--color-text-primary)' }}>盘面解析</h2>
@@ -97,16 +130,26 @@ export default function TodayHoldings() {
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
   const [note, setNote] = useState(() => localStorage.getItem(NOTE_KEY) ?? '')
   const [noteSaved, setNoteSaved] = useState(false)
-  const marketLoading = false
-  const marketError = false
 
-  const holdings = [...mockHoldings].sort((a, b) => {
-    const diff = Math.abs(b[sortKey]) - Math.abs(a[sortKey])
-    return sortDir === 'desc' ? diff : -diff
-  })
+  const { data: rawHoldings = [], isLoading, isError } = usePositions()
+  const { data: sentiment } = useSentiment()
 
-  const totalMarketValue = holdings.reduce((s, h) => s + h.market_value, 0)
-  const totalFloatPnl = holdings.reduce((s, h) => s + h.float_pnl, 0)
+  const holdings = [...rawHoldings]
+    .map(h => ({
+      ...h,
+      _float_pnl: n(h.float_pnl),
+      _market_value: n(h.market_value),
+      _float_pnl_rate: h.float_pnl_rate,
+    }))
+    .sort((a, b) => {
+      const diff = Math.abs(b[`_${sortKey}` as '_float_pnl' | '_market_value' | '_float_pnl_rate']) -
+        Math.abs(a[`_${sortKey}` as '_float_pnl' | '_market_value' | '_float_pnl_rate'])
+      return sortDir === 'desc' ? diff : -diff
+    })
+
+  const totalMarketValue = holdings.reduce((s, h) => s + n(h.market_value), 0)
+  const totalFloatPnl = holdings.reduce((s, h) => s + n(h.float_pnl), 0)
+  const holdingsDate = holdings.find((h) => h.as_of_date)?.as_of_date ?? sentiment?.date
 
   function toggleSort(key: SortKey) {
     if (sortKey === key) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
@@ -118,17 +161,6 @@ export default function TodayHoldings() {
     setNoteSaved(true)
     setTimeout(() => setNoteSaved(false), 1800)
   }
-
-  const ThBtn = ({ col, label }: { col: SortKey; label: string }) => (
-    <button
-      className="flex items-center gap-1 text-xs font-medium uppercase tracking-wide"
-      style={{ color: 'var(--color-text-secondary)' }}
-      onClick={() => toggleSort(col)}
-    >
-      {label}
-      <ArrowUpDown size={12} />
-    </button>
-  )
 
   return (
     <div className="flex flex-col gap-8">
@@ -143,28 +175,34 @@ export default function TodayHoldings() {
 
       <section className="flex flex-col gap-4">
         <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold" style={{ color: 'var(--color-text-primary)' }}>持仓明细</h2>
+          <h2 className="text-lg font-semibold" style={{ color: 'var(--color-text-primary)' }}>
+            持仓明细{holdingsDate ? ` ${holdingsDate}` : ''}
+          </h2>
           <div className="flex gap-6 text-sm">
             <div>
               <span style={{ color: 'var(--color-text-tertiary)' }}>总持仓市值 </span>
               <span className="font-semibold tabular-nums" style={{ color: 'var(--color-text-primary)' }}>
-                {formatAmount(totalMarketValue)}
+                {isLoading ? '—' : formatAmount(totalMarketValue)}
               </span>
             </div>
             <div>
-              <span style={{ color: 'var(--color-text-tertiary)' }}>总浮动盈亏 </span>
-              <PnlNumber value={totalFloatPnl} formatter={formatAmount} className="font-semibold" />
+              <span style={{ color: 'var(--color-text-tertiary)' }}>总持仓盈亏 </span>
+              {isLoading ? (
+                <span className="font-semibold tabular-nums" style={{ color: 'var(--color-text-primary)' }}>—</span>
+              ) : (
+                <PnlNumber value={totalFloatPnl} formatter={formatAmount} className="font-semibold" />
+              )}
             </div>
             <div>
               <span style={{ color: 'var(--color-text-tertiary)' }}>股票数 </span>
               <span className="font-semibold tabular-nums" style={{ color: 'var(--color-text-primary)' }}>
-                {holdings.length}
+                {isLoading ? '—' : holdings.length}
               </span>
             </div>
           </div>
         </div>
 
-        {marketError && (
+        {isError && (
           <div
             className="flex items-center gap-3 px-4 py-3 rounded-lg text-sm"
             style={{ background: 'rgba(217,119,6,0.06)', borderLeft: '4px solid var(--color-warning)' }}
@@ -174,7 +212,11 @@ export default function TodayHoldings() {
           </div>
         )}
 
-        {holdings.length === 0 ? (
+        {isLoading ? (
+          <div className="flex flex-col gap-2">
+            {[0, 1, 2].map(i => <Skeleton key={i} className="h-11 rounded-lg" />)}
+          </div>
+        ) : holdings.length === 0 ? (
           <div
             className="flex flex-col items-center justify-center rounded-lg py-20 gap-3"
             style={{ border: '1px solid var(--color-border-subtle)', background: 'var(--color-bg-surface)' }}
@@ -190,9 +232,9 @@ export default function TodayHoldings() {
                 <tr style={{ background: 'var(--color-bg-sidebar)' }}>
                   {[
                     { label: '股票', align: 'left' },
-                    { label: '持仓数量', align: 'right' },
-                    { label: '持仓均价', align: 'right' },
-                    { label: '最新价', align: 'right' },
+                    { label: '持仓数量', align: 'left' },
+                    { label: '持仓均价', align: 'left' },
+                    { label: '最新价', align: 'left' },
                   ].map(({ label, align }) => (
                     <th
                       key={label}
@@ -202,14 +244,14 @@ export default function TodayHoldings() {
                       {label}
                     </th>
                   ))}
-                  <th className="px-4 py-2.5 text-right" style={{ color: 'var(--color-text-secondary)', borderBottom: '1px solid var(--color-border-subtle)' }}>
-                    <ThBtn col="market_value" label="市值" />
+                  <th className="px-4 py-2.5 text-left" style={{ color: 'var(--color-text-secondary)', borderBottom: '1px solid var(--color-border-subtle)' }}>
+                    <SortHeader col="market_value" label="市值" onSort={toggleSort} />
                   </th>
-                  <th className="px-4 py-2.5 text-right" style={{ color: 'var(--color-text-secondary)', borderBottom: '1px solid var(--color-border-subtle)' }}>
-                    <ThBtn col="float_pnl" label="浮动盈亏" />
+                  <th className="px-4 py-2.5 text-left" style={{ color: 'var(--color-text-secondary)', borderBottom: '1px solid var(--color-border-subtle)' }}>
+                    <SortHeader col="float_pnl" label="持仓盈亏" onSort={toggleSort} />
                   </th>
-                  <th className="px-4 py-2.5 text-right" style={{ color: 'var(--color-text-secondary)', borderBottom: '1px solid var(--color-border-subtle)' }}>
-                    <ThBtn col="float_pnl_rate" label="盈亏率" />
+                  <th className="px-4 py-2.5 text-left" style={{ color: 'var(--color-text-secondary)', borderBottom: '1px solid var(--color-border-subtle)' }}>
+                    <SortHeader col="float_pnl_rate" label="盈亏率" onSort={toggleSort} />
                   </th>
                   <th className="px-4 py-2.5 text-center" style={{ color: 'var(--color-text-secondary)', borderBottom: '1px solid var(--color-border-subtle)' }}>
                     操作
@@ -231,23 +273,23 @@ export default function TodayHoldings() {
                         <span className="font-mono text-xs" style={{ color: 'var(--color-text-tertiary)' }}>{h.stock_code}</span>
                       </div>
                     </td>
-                    <td className="px-4 text-right tabular-nums" style={{ color: 'var(--color-text-primary)' }}>
+                    <td className="px-4 text-left tabular-nums" style={{ color: 'var(--color-text-primary)' }}>
                       {h.quantity.toLocaleString()}
                     </td>
-                    <td className="px-4 text-right tabular-nums" style={{ color: 'var(--color-text-secondary)' }}>
-                      {marketLoading ? <Skeleton className="h-4 w-16 ml-auto" /> : h.avg_cost.toFixed(3)}
+                    <td className="px-4 text-left tabular-nums" style={{ color: 'var(--color-text-secondary)' }}>
+                      {n(h.avg_cost).toFixed(3)}
                     </td>
-                    <td className="px-4 text-right tabular-nums" style={{ color: 'var(--color-text-secondary)' }}>
-                      {marketLoading ? <Skeleton className="h-4 w-16 ml-auto" /> : h.latest_price?.toFixed(2) ?? '—'}
+                    <td className="px-4 text-left tabular-nums" style={{ color: 'var(--color-text-secondary)' }}>
+                      {n(h.latest_price).toFixed(2)}
                     </td>
-                    <td className="px-4 text-right tabular-nums" style={{ color: 'var(--color-text-primary)' }}>
-                      {marketLoading ? <Skeleton className="h-4 w-20 ml-auto" /> : formatAmount(h.market_value)}
+                    <td className="px-4 text-left tabular-nums" style={{ color: 'var(--color-text-primary)' }}>
+                      {formatAmount(n(h.market_value))}
                     </td>
-                    <td className="px-4 text-right">
-                      {marketLoading ? <Skeleton className="h-4 w-20 ml-auto" /> : <PnlNumber value={h.float_pnl} formatter={formatAmount} />}
+                    <td className="px-4 text-left">
+                      <PnlNumber value={n(h.float_pnl)} formatter={formatAmount} />
                     </td>
-                    <td className="px-4 text-right">
-                      {marketLoading ? <Skeleton className="h-4 w-14 ml-auto" /> : <PnlNumber value={h.float_pnl_rate} formatter={formatPct} />}
+                    <td className="px-4 text-left">
+                      <PnlNumber value={h.float_pnl_rate} formatter={formatPct} />
                     </td>
                     <td className="px-4 text-center">
                       <button

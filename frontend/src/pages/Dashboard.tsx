@@ -1,16 +1,18 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import ReactECharts from 'echarts-for-react'
-import { Plus, Pencil, Bot, X, Star, Check } from 'lucide-react'
+import { Plus, Pencil, Bot, X, Star, Check, Loader2, ChevronLeft, ChevronRight, SlidersHorizontal } from 'lucide-react'
 import PnlNumber from '@/components/shared/PnlNumber'
 import { formatAmount, formatPct, formatTradeDate } from '@/lib/format'
-import { mockPnlSummary, mockNetValueSeries, mockTrades, mockTags } from '@/lib/mock'
-
-type Trade = (typeof mockTrades)[0]
+import {
+  useTrades, useSummary, useEquityCurve, useTags,
+  useCreateIntent, useSaveIntent,
+  n, type Trade, type EquityCurve,
+} from '@/lib/queries'
 
 // ── Perf cards ────────────────────────────────────────────────
 
-function PerfCard({ label, value, isPnl = false }: { label: string; value: number | null; isPnl?: boolean }) {
+function PerfCard({ label, value, isPnl = false, isAmount = false }: { label: string; value: number | null; isPnl?: boolean; isAmount?: boolean }) {
   return (
     <div
       className="rounded-lg p-5 flex flex-col gap-2"
@@ -23,6 +25,10 @@ function PerfCard({ label, value, isPnl = false }: { label: string; value: numbe
         <span className="text-3xl font-semibold tabular-nums" style={{ color: 'var(--color-text-tertiary)' }}>—</span>
       ) : isPnl ? (
         <PnlNumber value={value} formatter={formatAmount} className="text-3xl font-semibold" />
+      ) : isAmount ? (
+        <span className="text-3xl font-semibold tabular-nums" style={{ color: 'var(--color-text-primary)' }}>
+          {formatAmount(value)}
+        </span>
       ) : (
         <span className="text-3xl font-semibold tabular-nums" style={{ color: 'var(--color-text-primary)' }}>
           {formatPct(value)}
@@ -65,19 +71,19 @@ function StarRating({ value, onChange }: { value: number; onChange: (v: number) 
   const [hovered, setHovered] = useState(0)
   return (
     <div className="flex gap-1">
-      {[1, 2, 3, 4, 5].map(n => (
+      {[1, 2, 3, 4, 5].map(num => (
         <button
-          key={n}
-          onMouseEnter={() => setHovered(n)}
+          key={num}
+          onMouseEnter={() => setHovered(num)}
           onMouseLeave={() => setHovered(0)}
-          onClick={() => onChange(value === n ? 0 : n)}
+          onClick={() => onChange(value === num ? 0 : num)}
           className="transition-colors duration-[120ms]"
         >
           <Star
             size={18}
             strokeWidth={1.5}
-            fill={(hovered || value) >= n ? 'var(--color-warning)' : 'transparent'}
-            style={{ color: (hovered || value) >= n ? 'var(--color-warning)' : 'var(--color-border-default)' }}
+            fill={(hovered || value) >= num ? 'var(--color-warning)' : 'transparent'}
+            style={{ color: (hovered || value) >= num ? 'var(--color-warning)' : 'var(--color-border-default)' }}
           />
         </button>
       ))}
@@ -86,23 +92,35 @@ function StarRating({ value, onChange }: { value: number; onChange: (v: number) 
 }
 
 function IntentDrawer({ trade, onClose }: { trade: Trade; onClose: () => void }) {
+  const { data: tags = [] } = useTags()
+  const createIntent = useCreateIntent()
+  const saveIntent = useSaveIntent()
+
   const [selectedTags, setSelectedTags] = useState<string[]>(trade.intent_tags ?? [])
   const [confidence, setConfidence] = useState(trade.intent_confidence ?? 0)
   const [thesis, setThesis] = useState(trade.intent_thesis ?? '')
-  const [saving, setSaving] = useState(false)
-  const [saved, setSaved] = useState(false)
   const [newTagInput, setNewTagInput] = useState('')
   const [showNewTag, setShowNewTag] = useState(false)
+  const [saved, setSaved] = useState(false)
 
-  const allTags = [...new Set([...mockTags.map(t => t.name), ...selectedTags])]
+  const allTags = [...new Set([...tags.map(t => t.name), ...selectedTags])]
+  const saving = createIntent.isPending || saveIntent.isPending
 
   function toggleTag(tag: string) {
     setSelectedTags(prev => prev.includes(tag) ? prev.filter(t => t !== tag) : [...prev, tag])
   }
 
-  function handleSave() {
-    setSaving(true)
-    setTimeout(() => { setSaving(false); setSaved(true); setTimeout(() => setSaved(false), 1500) }, 800)
+  async function handleSave() {
+    const payload = { tags: selectedTags, thesis, confidence }
+    // Check if intent already exists by looking at trade's intent data
+    const existingIntentForTrade = trade.intent_tags !== null
+    if (existingIntentForTrade && trade.intent_confidence !== null) {
+      // Intent exists – but we don't have the intent id here, so create a new one
+      // (idempotent: multiple intents per trade are allowed)
+    }
+    await createIntent.mutateAsync({ trade_id: trade.id, stock_code: trade.stock_code, ...payload })
+    setSaved(true)
+    setTimeout(() => { setSaved(false); onClose() }, 1000)
   }
 
   function addNewTag() {
@@ -153,7 +171,7 @@ function IntentDrawer({ trade, onClose }: { trade: Trade; onClose: () => void })
           <p className="text-xs mt-1" style={{ color: 'var(--color-text-secondary)' }}>
             {formatTradeDate(trade.trade_date)} &nbsp;·&nbsp;
             <SideBadge side={trade.side} /> &nbsp;·&nbsp;
-            ¥{trade.price.toFixed(3)} &nbsp;·&nbsp; {trade.quantity.toLocaleString()}股 &nbsp;·&nbsp; {formatAmount(trade.amount)}
+            ¥{n(trade.price).toFixed(3)} &nbsp;·&nbsp; {trade.quantity.toLocaleString()}股 &nbsp;·&nbsp; {formatAmount(n(trade.amount))}
           </p>
         </div>
         <div className="flex-1 overflow-y-auto px-4 py-4 flex flex-col gap-5">
@@ -217,7 +235,7 @@ function IntentDrawer({ trade, onClose }: { trade: Trade; onClose: () => void })
             onClick={handleSave}
             disabled={saving}
           >
-            {saving && <div className="w-3.5 h-3.5 rounded-full border-2 border-t-transparent animate-spin" style={{ borderColor: 'rgba(255,255,255,0.4) var(--color-text-on-brand) var(--color-text-on-brand) var(--color-text-on-brand)' }} />}
+            {saving && <Loader2 size={14} className="animate-spin" />}
             {saving ? '保存中...' : '保存'}
           </button>
         </div>
@@ -228,61 +246,331 @@ function IntentDrawer({ trade, onClose }: { trade: Trade; onClose: () => void })
 
 // ── Dashboard ─────────────────────────────────────────────────
 
+const FILTER_STORAGE_KEY = 'dashboard:tradeFilter'
+
+type TradeFilter = { code: string; side: string; page: number }
+
+function readFilter(): TradeFilter {
+  try {
+    const raw = sessionStorage.getItem(FILTER_STORAGE_KEY)
+    if (raw) {
+      const parsed = JSON.parse(raw) as Partial<TradeFilter>
+      return {
+        code: parsed.code ?? '',
+        side: parsed.side ?? 'all',
+        page: parsed.page ?? 1,
+      }
+    }
+  } catch {
+    // ignore malformed storage
+  }
+  return { code: '', side: 'all', page: 1 }
+}
+
+// ── 收益率走势卡片 ───────────────────────────────────────────
+
+type RangeKey = '1w' | '1m' | 'ytd' | 'all' | 'custom'
+
+const RANGE_TABS: { key: RangeKey; label: string }[] = [
+  { key: '1w', label: '近1周' },
+  { key: '1m', label: '近1月' },
+  { key: 'ytd', label: '年初至今' },
+  { key: 'all', label: '全部' },
+]
+
+// 基准线配色：账户用品牌主色，基准用中性灰阶，保证账户曲线突出
+const BENCH_COLORS: Record<string, string> = {
+  '000300.SH': '#5e5d59',
+  '000001.SH': '#a07e5a',
+  '399001.SZ': '#7d8a6a',
+  '399006.SZ': '#9a7aa0',
+}
+const ACCOUNT_COLOR = '#c96442'
+
+const dayMs = 86400000
+
+function rangeStartDate(range: RangeKey, lastISO: string): Date {
+  const last = new Date(lastISO)
+  if (range === '1w') return new Date(last.getTime() - 6 * dayMs)
+  if (range === '1m') { const d = new Date(last); d.setMonth(d.getMonth() - 1); return d }
+  if (range === 'ytd') return new Date(last.getFullYear(), 0, 1)
+  return new Date(0)
+}
+
+function ReturnTrendCard({ curve, loading, failed }: { curve?: EquityCurve; loading: boolean; failed?: boolean }) {
+  const [range, setRange] = useState<RangeKey>('all')
+  const [custom, setCustom] = useState<{ start: string; end: string }>({ start: '', end: '' })
+  const [hidden, setHidden] = useState<Set<string>>(new Set())
+
+  const dates = curve?.dates ?? []
+
+  // 计算所选区间下标 [i0, i1]
+  const [i0, i1] = useMemo<[number, number]>(() => {
+    if (dates.length === 0) return [0, -1]
+    if (range === 'custom') {
+      const s = custom.start, e = custom.end
+      let lo = 0, hi = dates.length - 1
+      if (s) { const idx = dates.findIndex(d => d >= s); lo = idx === -1 ? dates.length - 1 : idx }
+      if (e) { for (let k = dates.length - 1; k >= 0; k--) { if (dates[k] <= e) { hi = k; break } } }
+      if (hi < lo) hi = lo
+      return [lo, hi]
+    }
+    const startISO = rangeStartDate(range, dates[dates.length - 1]).toISOString().slice(0, 10)
+    const idx = dates.findIndex(d => d >= startISO)
+    return [idx === -1 ? 0 : idx, dates.length - 1]
+  }, [dates, range, custom])
+
+  const view = useMemo(() => {
+    if (!curve || i1 < i0 || dates.length === 0) return null
+    const nav = curve.nav
+    const assets = curve.total_assets
+    const winDates = dates.slice(i0, i1 + 1)
+    const navBase = nav[i0]
+
+    // 账户累计收益率序列（区间起点归一为 0%）
+    const accountSeries = winDates.map((_, k) => navBase ? +(((nav[i0 + k] / navBase) - 1) * 100).toFixed(4) : 0)
+
+    // 基准：区间内首个非空值为基准点
+    const benchSeries = curve.benchmarks.map(b => {
+      const slice = b.nav.slice(i0, i1 + 1)
+      const baseIdx = slice.findIndex(v => v != null)
+      const base = baseIdx === -1 ? null : slice[baseIdx]
+      const series = slice.map(v => (v == null || base == null) ? null : +(((v / base) - 1) * 100).toFixed(4))
+      const lastVal = [...series].reverse().find(v => v != null) ?? null
+      return { code: b.code, name: b.name, series, ret: lastVal }
+    })
+
+    // 区间净现金流（起点之后发生的出入金）
+    const startDate = dates[i0]
+    const endDate = dates[i1]
+    const netFlow = (curve.flows ?? [])
+      .filter(f => f.date > startDate && f.date <= endDate)
+      .reduce((s, f) => s + f.amount, 0)
+    const vStart = assets[i0]
+    const vEnd = assets[i1]
+    const profit = (vEnd - vStart) - netFlow
+
+    // 收益率：时间加权（TWR），与曲线同口径
+    const rate = navBase ? (nav[i1] / navBase) - 1 : 0
+
+    return { winDates, accountSeries, benchSeries, profit, rate }
+  }, [curve, dates, i0, i1])
+
+  const chartOption = useMemo(() => {
+    if (!view) return null
+    const visibleBench = view.benchSeries.filter(b => !hidden.has(b.code))
+    // 计算所有可见序列的最大绝对值 → 让 0% 居中
+    let maxAbs = 0
+    for (const v of view.accountSeries) maxAbs = Math.max(maxAbs, Math.abs(v))
+    for (const b of visibleBench) for (const v of b.series) if (v != null) maxAbs = Math.max(maxAbs, Math.abs(v))
+    maxAbs = Math.max(1, Math.ceil(maxAbs * 1.15))
+
+    const fmtAxisDate = (d: string) => d.slice(5)
+    return {
+      backgroundColor: 'transparent',
+      tooltip: {
+        trigger: 'axis',
+        backgroundColor: '#141413', borderColor: 'transparent',
+        textStyle: { color: '#faf9f5', fontSize: 12 },
+        valueFormatter: (v: number | null) => v == null ? '—' : `${v > 0 ? '+' : ''}${v.toFixed(2)}%`,
+      },
+      legend: { show: false },
+      grid: { left: 0, right: 8, top: 16, bottom: 24, containLabel: true },
+      xAxis: {
+        type: 'category', data: view.winDates, boundaryGap: false,
+        axisLine: { lineStyle: { color: '#f0eee6' } },
+        axisTick: { show: false },
+        axisLabel: { color: '#87867f', fontSize: 11, formatter: fmtAxisDate, hideOverlap: true },
+      },
+      yAxis: {
+        type: 'value', min: -maxAbs, max: maxAbs,
+        splitLine: { lineStyle: { color: '#f0eee6', type: 'dashed' } },
+        axisLabel: { color: '#87867f', fontSize: 11, formatter: (v: number) => `${v > 0 ? '+' : ''}${v.toFixed(0)}%` },
+      },
+      series: [
+        {
+          name: '账户', type: 'line', data: view.accountSeries, smooth: true, symbol: 'none', z: 5,
+          lineStyle: { color: ACCOUNT_COLOR, width: 2 },
+          areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: 'rgba(201,100,66,0.14)' }, { offset: 1, color: 'rgba(201,100,66,0)' }] } },
+          markLine: {
+            silent: true, symbol: 'none',
+            lineStyle: { color: '#d1cfc5', type: 'solid', width: 1 },
+            data: [{ yAxis: 0 }], label: { show: false },
+          },
+        },
+        ...visibleBench.map(b => ({
+          name: b.name, type: 'line', data: b.series, smooth: true, symbol: 'none', connectNulls: true,
+          lineStyle: { color: BENCH_COLORS[b.code] ?? '#87867f', width: 1.25 },
+        })),
+      ],
+    }
+  }, [view, hidden])
+
+  function toggleBench(code: string) {
+    setHidden(prev => {
+      const next = new Set(prev)
+      if (next.has(code)) next.delete(code); else next.add(code)
+      return next
+    })
+  }
+
+  return (
+    <div className="rounded-lg p-5" style={{ background: 'var(--color-bg-surface)', border: '1px solid var(--color-border-subtle)' }}>
+      {/* 时间区间 + 筛选 */}
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex gap-1">
+          {RANGE_TABS.map(t => (
+            <button
+              key={t.key}
+              onClick={() => setRange(t.key)}
+              className="px-3 py-1 rounded text-xs transition-colors duration-[120ms]"
+              style={{
+                background: range === t.key ? 'var(--color-bg-surface-selected)' : 'transparent',
+                color: range === t.key ? 'var(--color-text-primary)' : 'var(--color-text-tertiary)',
+                border: '1px solid var(--color-border-default)',
+              }}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+        <div className="flex items-center gap-2">
+          {range === 'custom' && (
+            <div className="flex items-center gap-1">
+              <input type="date" value={custom.start} max={custom.end || undefined}
+                onChange={e => setCustom(c => ({ ...c, start: e.target.value }))}
+                className="h-7 px-2 rounded text-xs outline-none"
+                style={{ border: '1px solid var(--color-border-default)', color: 'var(--color-text-primary)', background: 'var(--color-bg-surface)' }} />
+              <span className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>~</span>
+              <input type="date" value={custom.end} min={custom.start || undefined}
+                onChange={e => setCustom(c => ({ ...c, end: e.target.value }))}
+                className="h-7 px-2 rounded text-xs outline-none"
+                style={{ border: '1px solid var(--color-border-default)', color: 'var(--color-text-primary)', background: 'var(--color-bg-surface)' }} />
+            </div>
+          )}
+          <button
+            onClick={() => setRange('custom')}
+            className="flex items-center gap-1 px-3 py-1 rounded text-xs transition-colors duration-[120ms]"
+            style={{
+              background: range === 'custom' ? 'var(--color-primary-subtle)' : 'transparent',
+              color: range === 'custom' ? 'var(--color-primary)' : 'var(--color-text-tertiary)',
+              border: `1px solid ${range === 'custom' ? 'var(--color-primary)' : 'var(--color-border-default)'}`,
+            }}
+          >
+            <SlidersHorizontal size={12} /> 筛选
+          </button>
+        </div>
+      </div>
+
+      <div className="text-base font-semibold mb-3" style={{ color: 'var(--color-text-primary)' }}>收益率走势</div>
+
+      {/* 累计收益 + 收益率 */}
+      <div className="flex items-end justify-between mb-2">
+        <div className="flex flex-col gap-1">
+          <span className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>累计收益</span>
+          {view ? (
+            <span className="text-2xl font-semibold tabular-nums"
+              style={{ color: view.profit > 0 ? 'var(--color-loss)' : view.profit < 0 ? 'var(--color-profit)' : 'var(--color-text-primary)' }}>
+              {view.profit > 0 ? '+' : ''}{formatAmount(view.profit).replace('¥', '¥')}
+            </span>
+          ) : <span className="text-2xl font-semibold" style={{ color: 'var(--color-text-tertiary)' }}>—</span>}
+        </div>
+        <div className="flex flex-col items-end gap-1">
+          <span className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>收益率</span>
+          {view ? (
+            <span className="text-2xl font-semibold tabular-nums"
+              style={{ color: view.rate > 0 ? 'var(--color-loss)' : view.rate < 0 ? 'var(--color-profit)' : 'var(--color-text-primary)' }}>
+              {formatPct(view.rate)}
+            </span>
+          ) : <span className="text-2xl font-semibold" style={{ color: 'var(--color-text-tertiary)' }}>—</span>}
+        </div>
+      </div>
+
+      {/* 图表 */}
+      {loading ? (
+        <div className="flex items-center justify-center h-[260px] text-sm" style={{ color: 'var(--color-text-tertiary)' }}>加载中...</div>
+      ) : failed ? (
+        <div className="flex items-center justify-center h-[260px] text-sm" style={{ color: 'var(--color-loss)' }}>净值曲线加载失败，请稍后重试</div>
+      ) : !chartOption ? (
+        <div className="flex items-center justify-center h-[260px] text-sm" style={{ color: 'var(--color-text-tertiary)' }}>导入成交数据后显示净值曲线</div>
+      ) : (
+        <ReactECharts option={chartOption} style={{ height: 260 }} notMerge />
+      )}
+
+      {/* 基准对比 chips */}
+      {view && view.benchSeries.length > 0 && (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-6 gap-y-3 mt-4 pt-4" style={{ borderTop: '1px solid var(--color-border-subtle)' }}>
+          {view.benchSeries.map(b => {
+            const off = hidden.has(b.code)
+            return (
+              <button key={b.code} onClick={() => toggleBench(b.code)} className="flex flex-col gap-0.5 text-left transition-opacity duration-[120ms]"
+                style={{ opacity: off ? 0.4 : 1 }}>
+                <span className="flex items-center gap-1.5 text-xs" style={{ color: 'var(--color-text-secondary)' }}>
+                  <span className="inline-block rounded-full" style={{ width: 7, height: 7, background: BENCH_COLORS[b.code] ?? '#87867f' }} />
+                  {b.name}
+                </span>
+                <span className="text-sm font-medium tabular-nums"
+                  style={{ color: b.ret == null ? 'var(--color-text-tertiary)' : b.ret > 0 ? 'var(--color-loss)' : b.ret < 0 ? 'var(--color-profit)' : 'var(--color-text-secondary)' }}>
+                  {b.ret == null ? '—' : formatPct(b.ret)}
+                </span>
+              </button>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function Dashboard() {
   const navigate = useNavigate()
-  const summary = mockPnlSummary
-  const { dates, portfolio, index } = mockNetValueSeries
-
-  const [indexType, setIndexType] = useState<'hs300' | 'sh'>('hs300')
-  const [filterCode, setFilterCode] = useState('')
-  const [filterSide, setFilterSide] = useState('all')
   const [activeTrade, setActiveTrade] = useState<Trade | null>(null)
 
-  const trades = mockTrades.filter(t => {
-    if (filterCode && !t.stock_code.includes(filterCode) && !t.stock_name.includes(filterCode)) return false
-    if (filterSide !== 'all' && t.side !== filterSide) return false
-    return true
+  const [filter, setFilter] = useState<TradeFilter>(readFilter)
+  const { code: filterCode, side: filterSide, page } = filter
+
+  function persistFilter(next: TradeFilter) {
+    setFilter(next)
+    try {
+      sessionStorage.setItem(FILTER_STORAGE_KEY, JSON.stringify(next))
+    } catch {
+      // ignore storage write failure
+    }
+  }
+
+  function setFilterCode(value: string) {
+    persistFilter({ ...filter, code: value, page: 1 })
+  }
+
+  function setFilterSide(value: string) {
+    persistFilter({ ...filter, side: value, page: 1 })
+  }
+
+  function setPage(value: number) {
+    persistFilter({ ...filter, page: value })
+  }
+
+  const { data: summary, isLoading: summaryLoading, isError: summaryError } = useSummary()
+  const { data: curve, isLoading: curveLoading, isError: curveError } = useEquityCurve()
+  const { data: allTrades = [], isLoading: tradesLoading, isError: tradesError } = useTrades({ side: filterSide })
+  const statsPending = summaryLoading || curveLoading
+  const statsFailed = summaryError || curveError
+  const trades = allTrades.filter(t => {
+    if (!filterCode) return true
+    const q = filterCode.toLowerCase()
+    return t.stock_code.toLowerCase().startsWith(q) || t.stock_name.toLowerCase().includes(q)
   })
 
-  const chartOption = {
-    backgroundColor: 'transparent',
-    tooltip: {
-      trigger: 'axis',
-      backgroundColor: '#141413',
-      borderColor: 'transparent',
-      textStyle: { color: '#faf9f5', fontSize: 12 },
-      formatter: (params: { seriesName: string; value: number; axisValue: string }[]) =>
-        `<div style="padding:4px 0"><b>${params[0].axisValue}</b></div>` +
-        params.map(p => `<div style="display:flex;gap:12px;justify-content:space-between"><span>${p.seriesName}</span><b>${p.value.toFixed(4)}</b></div>`).join(''),
-    },
-    legend: {
-      data: ['账户净值', indexType === 'hs300' ? '沪深300' : '上证综指'],
-      right: 0, top: 0,
-      textStyle: { color: '#87867f', fontSize: 12 },
-    },
-    grid: { left: 0, right: 0, top: 32, bottom: 24, containLabel: true },
-    xAxis: {
-      type: 'category', data: dates,
-      axisLine: { lineStyle: { color: '#f0eee6' } },
-      axisTick: { show: false },
-      axisLabel: { color: '#87867f', fontSize: 11 },
-    },
-    yAxis: {
-      type: 'value',
-      splitLine: { lineStyle: { color: '#f0eee6', type: 'dashed' } },
-      axisLabel: { color: '#87867f', fontSize: 11, formatter: (v: number) => v.toFixed(3) },
-    },
-    series: [
-      {
-        name: '账户净值', type: 'line', data: portfolio, smooth: true, symbol: 'none',
-        lineStyle: { color: '#c96442', width: 2 },
-        areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: 'rgba(201,100,66,0.12)' }, { offset: 1, color: 'rgba(201,100,66,0)' }] } },
-      },
-      {
-        name: indexType === 'hs300' ? '沪深300' : '上证综指', type: 'line', data: index, smooth: true, symbol: 'none',
-        lineStyle: { color: '#5e5d59', width: 1.5, type: 'dashed' },
-      },
-    ],
+  const PAGE_SIZE = 20
+  const totalPages = Math.max(1, Math.ceil(trades.length / PAGE_SIZE))
+  const safePage = Math.min(page, totalPages)
+  const pagedTrades = trades.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
+
+  function getPageNumbers(current: number, total: number): (number | '…')[] {
+    if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1)
+    if (current <= 4) return [1, 2, 3, 4, 5, '…', total]
+    if (current >= total - 3) return [1, '…', total - 4, total - 3, total - 2, total - 1, total]
+    return [1, '…', current - 1, current, current + 1, '…', total]
   }
 
   return (
@@ -294,44 +582,21 @@ export default function Dashboard() {
         交易总览
       </h1>
 
-      <div className="grid grid-cols-4 gap-5">
-        <PerfCard label="总收益率" value={summary.total_return_rate} />
-        <PerfCard label="最大回撤" value={summary.max_drawdown} />
-        <PerfCard label="累计已实现盈亏" value={summary.total_realized} isPnl />
-        <PerfCard label="当前浮动盈亏" value={summary.total_float} isPnl />
+      {statsFailed && (
+        <p className="text-sm rounded-md px-4 py-3" style={{ color: 'var(--color-loss)', background: 'rgba(181,51,51,0.08)', border: '1px solid var(--color-border-subtle)' }}>
+          汇总数据加载失败（行情接口限频或超时）。请稍后刷新；若持续失败，请检查网络/代理或 TuShare 配额。
+        </p>
+      )}
+
+      <div className="grid grid-cols-5 gap-5">
+        <PerfCard label="总收益率" value={statsPending ? null : (summary?.total_return_rate ?? null)} />
+        <PerfCard label="最大回撤" value={statsPending ? null : (summary?.max_drawdown ?? null)} />
+        <PerfCard label="总盈亏（不含手续费）" value={statsPending ? null : (summary ? n(summary.total_pnl) : null)} isPnl />
+        <PerfCard label="当前持仓盈亏" value={statsPending ? null : (summary ? n(summary.total_float) : null)} isPnl />
+        <PerfCard label="累计手续费" value={statsPending ? null : (summary ? n(summary.total_fee) : null)} isAmount />
       </div>
 
-      <div
-        className="rounded-lg p-5"
-        style={{ background: 'var(--color-bg-surface)', border: '1px solid var(--color-border-subtle)' }}
-      >
-        <div className="flex items-center justify-between mb-4">
-          <span className="text-base font-semibold" style={{ color: 'var(--color-text-primary)' }}>账户净值 vs 基准</span>
-          <div className="flex gap-1">
-            {(['hs300', 'sh'] as const).map((t) => (
-              <button
-                key={t}
-                onClick={() => setIndexType(t)}
-                className="px-3 py-1 rounded text-xs transition-colors duration-[120ms]"
-                style={{
-                  background: indexType === t ? 'var(--color-bg-surface-selected)' : 'transparent',
-                  color: indexType === t ? 'var(--color-text-primary)' : 'var(--color-text-tertiary)',
-                  border: '1px solid var(--color-border-default)',
-                }}
-              >
-                {t === 'hs300' ? '沪深300' : '上证综指'}
-              </button>
-            ))}
-          </div>
-        </div>
-        {dates.length === 0 ? (
-          <div className="flex items-center justify-center h-48 text-sm" style={{ color: 'var(--color-text-tertiary)' }}>
-            导入成交数据后显示净值曲线
-          </div>
-        ) : (
-          <ReactECharts option={chartOption} style={{ height: 280 }} />
-        )}
-      </div>
+      <ReturnTrendCard curve={curve} loading={curveLoading} failed={curveError} />
 
       {/* 流水 */}
       <section className="flex flex-col gap-4">
@@ -356,18 +621,21 @@ export default function Dashboard() {
             <option value="all">全部方向</option>
             <option value="buy">买入</option>
             <option value="sell">卖出</option>
-            <option value="transfer_in">担保品划入</option>
           </select>
         </div>
 
         <div className="rounded-lg overflow-hidden" style={{ border: '1px solid var(--color-border-subtle)' }}>
-          {trades.length === 0 ? (
+          {tradesLoading ? (
+            <p className="p-8 text-center text-sm" style={{ color: 'var(--color-text-tertiary)' }}>加载中...</p>
+          ) : tradesError ? (
+            <p className="p-8 text-center text-sm" style={{ color: 'var(--color-loss)' }}>成交流水加载失败，请稍后重试</p>
+          ) : trades.length === 0 ? (
             <p className="p-8 text-center text-sm" style={{ color: 'var(--color-text-tertiary)' }}>暂无成交记录</p>
           ) : (
             <table className="w-full text-sm">
               <thead>
                 <tr style={{ background: 'var(--color-bg-sidebar)' }}>
-                  {['日期', '股票', '方向', '成交价', '数量', '成交金额', '意图标签', '操作'].map(h => (
+                  {['日期', '股票', '方向', '成交价', '数量', '成交金额', '手续费', '意图标签', '操作'].map(h => (
                     <th key={h} className="px-4 py-2.5 text-xs font-medium uppercase tracking-wide text-left"
                       style={{ color: 'var(--color-text-secondary)', borderBottom: '1px solid var(--color-border-subtle)' }}>
                       {h}
@@ -376,7 +644,7 @@ export default function Dashboard() {
                 </tr>
               </thead>
               <tbody>
-                {trades.map(t => (
+                {pagedTrades.map(t => (
                   <tr
                     key={t.id}
                     className="transition-colors duration-[120ms] cursor-pointer"
@@ -398,9 +666,10 @@ export default function Dashboard() {
                       </div>
                     </td>
                     <td className="px-4"><SideBadge side={t.side} /></td>
-                    <td className="px-4 tabular-nums text-right" style={{ color: 'var(--color-text-secondary)' }}>{t.price.toFixed(3)}</td>
-                    <td className="px-4 tabular-nums text-right" style={{ color: 'var(--color-text-primary)' }}>{t.quantity.toLocaleString()}</td>
-                    <td className="px-4 tabular-nums text-right" style={{ color: 'var(--color-text-primary)' }}>{formatAmount(t.amount)}</td>
+                    <td className="px-4 tabular-nums" style={{ color: 'var(--color-text-secondary)' }}>{n(t.price).toFixed(3)}</td>
+                    <td className="px-4 tabular-nums" style={{ color: 'var(--color-text-primary)' }}>{t.quantity.toLocaleString()}</td>
+                    <td className="px-4 tabular-nums" style={{ color: 'var(--color-text-primary)' }}>{formatAmount(n(t.amount))}</td>
+                    <td className="px-4 tabular-nums text-xs" style={{ color: 'var(--color-text-tertiary)' }}>{formatAmount(n(t.fee))}</td>
                     <td className="px-4">
                       {t.intent_tags && t.intent_tags.length > 0 ? (
                         <div className="flex flex-wrap gap-1">
@@ -449,6 +718,47 @@ export default function Dashboard() {
             </table>
           )}
         </div>
+
+        {!tradesLoading && totalPages > 1 && (
+          <div className="flex items-center justify-center gap-1">
+            <button
+              disabled={safePage === 1}
+              onClick={() => setPage(safePage - 1)}
+              className="flex items-center justify-center w-8 h-8 rounded transition-colors duration-[120ms] disabled:opacity-30 disabled:cursor-not-allowed"
+              style={{ color: 'var(--color-text-secondary)', border: '1px solid var(--color-border-default)', background: 'var(--color-bg-surface)' }}
+            >
+              <ChevronLeft size={14} />
+            </button>
+
+            {getPageNumbers(safePage, totalPages).map((p, i) =>
+              p === '…' ? (
+                <span key={`ellipsis-${i}`} className="w-8 h-8 flex items-center justify-center text-xs" style={{ color: 'var(--color-text-tertiary)' }}>…</span>
+              ) : (
+                <button
+                  key={p}
+                  onClick={() => setPage(p as number)}
+                  className="w-8 h-8 rounded text-xs font-medium transition-colors duration-[120ms]"
+                  style={{
+                    background: safePage === p ? 'var(--color-primary)' : 'var(--color-bg-surface)',
+                    color: safePage === p ? '#fff' : 'var(--color-text-secondary)',
+                    border: `1px solid ${safePage === p ? 'var(--color-primary)' : 'var(--color-border-default)'}`,
+                  }}
+                >
+                  {p}
+                </button>
+              )
+            )}
+
+            <button
+              disabled={safePage === totalPages}
+              onClick={() => setPage(safePage + 1)}
+              className="flex items-center justify-center w-8 h-8 rounded transition-colors duration-[120ms] disabled:opacity-30 disabled:cursor-not-allowed"
+              style={{ color: 'var(--color-text-secondary)', border: '1px solid var(--color-border-default)', background: 'var(--color-bg-surface)' }}
+            >
+              <ChevronRight size={14} />
+            </button>
+          </div>
+        )}
       </section>
 
       {activeTrade && <IntentDrawer trade={activeTrade} onClose={() => setActiveTrade(null)} />}

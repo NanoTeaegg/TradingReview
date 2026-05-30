@@ -4,26 +4,12 @@ import ReactECharts from 'echarts-for-react'
 import { AlertTriangle } from 'lucide-react'
 import PnlNumber from '@/components/shared/PnlNumber'
 import { formatAmount, formatDatetime } from '@/lib/format'
-import { mockIntents } from '@/lib/mock'
+import {
+  useIntents, useWinRate, useDiscipline, useTurnover, useTagPerformance,
+  n,
+} from '@/lib/queries'
 
 type TabKey = 'list' | 'stats'
-
-const tagStats = [
-  { tag: '突破', count: 3, winRate: 0.667, avgPnl: 8400, avgDays: 28 },
-  { tag: '止盈', count: 1, winRate: 1.0, avgPnl: 8400, avgDays: 36 },
-  { tag: '补仓', count: 1, winRate: 0, avgPnl: -25418, avgDays: 1 },
-  { tag: '消费白马', count: 1, winRate: 0, avgPnl: 16450, avgDays: 38 },
-  { tag: '高位', count: 1, winRate: 0, avgPnl: -25418, avgDays: 1 },
-]
-
-const monthlyTurnover = [
-  { month: '2025-12', rate: 95 },
-  { month: '2026-01', rate: 130 },
-  { month: '2026-02', rate: 85 },
-  { month: '2026-03', rate: 210 },
-  { month: '2026-04', rate: 175 },
-  { month: '2026-05', rate: 145 },
-]
 
 export default function Intents() {
   const navigate = useNavigate()
@@ -31,13 +17,15 @@ export default function Intents() {
   const [filterCode, setFilterCode] = useState('')
   const [statsRange, setStatsRange] = useState<'30d' | '90d' | 'all'>('all')
 
-  const intents = mockIntents.filter(i =>
-    !filterCode || i.stock_code.includes(filterCode) || i.stock_name.includes(filterCode)
-  )
+  const { data: intents = [], isLoading: intentsLoading } = useIntents(filterCode || undefined)
+  const { data: winRate } = useWinRate()
+  const { data: discipline } = useDiscipline()
+  const { data: turnover = [] } = useTurnover()
+  const { data: tagPerf = [] } = useTagPerformance()
 
-  const totalTrades = 5
-  const taggedTrades = 4
-  const taggedRate = taggedTrades / totalTrades
+  const taggedRate = discipline?.discipline_rate ?? 0
+  const taggedTrades = discipline?.tagged_count ?? 0
+  const totalTrades = discipline?.total_count ?? 0
 
   const turnoverChartOption = {
     backgroundColor: 'transparent',
@@ -45,7 +33,7 @@ export default function Intents() {
     grid: { left: 0, right: 0, top: 12, bottom: 24, containLabel: true },
     xAxis: {
       type: 'category',
-      data: monthlyTurnover.map(m => m.month),
+      data: turnover.map(m => m.month),
       axisLabel: { color: '#87867f', fontSize: 11 },
       axisLine: { lineStyle: { color: '#f0eee6' } },
       axisTick: { show: false },
@@ -53,13 +41,13 @@ export default function Intents() {
     yAxis: {
       type: 'value',
       splitLine: { lineStyle: { color: '#f0eee6', type: 'dashed' } },
-      axisLabel: { color: '#87867f', fontSize: 11, formatter: (v: number) => `${v}%` },
+      axisLabel: { color: '#87867f', fontSize: 11, formatter: (v: number) => `${(v * 100).toFixed(0)}%` },
     },
     series: [{
       type: 'bar',
-      data: monthlyTurnover.map(m => ({
-        value: m.rate,
-        itemStyle: { color: m.rate > 200 ? 'var(--color-loss)' : 'var(--color-primary)', borderRadius: [4, 4, 0, 0] },
+      data: turnover.map(m => ({
+        value: m.turnover_rate ?? 0,
+        itemStyle: { color: m.warning ? 'var(--color-loss)' : 'var(--color-primary)', borderRadius: [4, 4, 0, 0] },
       })),
     }],
   }
@@ -102,12 +90,14 @@ export default function Intents() {
             />
           </div>
 
-          {intents.length === 0 ? (
+          {intentsLoading ? (
+            <p className="text-sm py-8 text-center" style={{ color: 'var(--color-text-tertiary)' }}>加载中...</p>
+          ) : intents.length === 0 ? (
             <div className="flex flex-col items-center py-24 gap-3">
               <p className="text-sm" style={{ color: 'var(--color-text-tertiary)' }}>
                 还没有意图记录。在流水页点击任意成交记录开始添加。
               </p>
-              <button className="text-sm underline" style={{ color: 'var(--color-primary)' }} onClick={() => navigate('/trades')}>
+              <button className="text-sm underline" style={{ color: 'var(--color-primary)' }} onClick={() => navigate('/')}>
                 去流水页
               </button>
             </div>
@@ -123,12 +113,12 @@ export default function Intents() {
                   }}
                   onMouseEnter={e => (e.currentTarget.style.background = 'var(--color-bg-surface-hover)')}
                   onMouseLeave={e => (e.currentTarget.style.background = 'var(--color-bg-surface)')}
-                  onClick={() => navigate(`/reviews/trade/${intent.trade_id}`)}
+                  onClick={() => intent.trade_id && navigate(`/reviews/trade/${intent.trade_id}`)}
                 >
                   <div className="flex-1 flex flex-col gap-1.5">
                     <div className="flex items-center gap-2">
                       <span className="font-medium text-sm" style={{ color: 'var(--color-text-primary)' }}>
-                        {intent.stock_name}
+                        {intent.stock_name || intent.stock_code}
                       </span>
                       <span className="font-mono text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
                         {intent.stock_code}
@@ -154,9 +144,9 @@ export default function Intents() {
                   </div>
                   <div className="flex flex-col items-end gap-1 shrink-0">
                     {intent.pnl_realized != null ? (
-                      <PnlNumber value={intent.pnl_realized} formatter={formatAmount} className="text-sm font-semibold" />
+                      <PnlNumber value={n(intent.pnl_realized)} formatter={formatAmount} className="text-sm font-semibold" />
                     ) : intent.pnl_float != null ? (
-                      <PnlNumber value={intent.pnl_float} formatter={formatAmount} className="text-sm font-semibold" />
+                      <PnlNumber value={n(intent.pnl_float)} formatter={formatAmount} className="text-sm font-semibold" />
                     ) : null}
                     <span className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
                       {formatDatetime(intent.created_at).slice(0, 10)}
@@ -175,20 +165,30 @@ export default function Intents() {
           <div className="rounded-lg p-5" style={{ background: 'var(--color-bg-surface)', border: '1px solid var(--color-border-subtle)' }}>
             <h3 className="text-base font-semibold mb-4" style={{ color: 'var(--color-text-primary)' }}>整体胜率与盈亏比</h3>
             <div className="grid grid-cols-3 gap-4 text-sm">
-              {[
-                { label: '总胜率', value: '66.7%', color: 'var(--color-profit)' },
-                { label: '平均盈利幅度', value: '+18.2%', color: 'var(--color-profit)' },
-                { label: '平均亏损幅度', value: '-9.6%', color: 'var(--color-loss)' },
-              ].map(({ label, value, color }) => (
-                <div key={label} className="flex flex-col gap-1">
-                  <span className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>{label}</span>
-                  <span className="text-2xl font-semibold tabular-nums" style={{ color }}>{value}</span>
-                </div>
-              ))}
+              <div className="flex flex-col gap-1">
+                <span className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>总胜率</span>
+                <span className="text-2xl font-semibold tabular-nums" style={{ color: (winRate?.win_rate ?? 0) >= 0.5 ? 'var(--color-profit)' : 'var(--color-loss)' }}>
+                  {((winRate?.win_rate ?? 0) * 100).toFixed(1)}%
+                </span>
+              </div>
+              <div className="flex flex-col gap-1">
+                <span className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>平均盈利</span>
+                <span className="text-2xl font-semibold tabular-nums" style={{ color: 'var(--color-profit)' }}>
+                  {winRate ? formatAmount(n(winRate.avg_win)) : '—'}
+                </span>
+              </div>
+              <div className="flex flex-col gap-1">
+                <span className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>平均亏损</span>
+                <span className="text-2xl font-semibold tabular-nums" style={{ color: 'var(--color-loss)' }}>
+                  {winRate ? formatAmount(n(winRate.avg_loss)) : '—'}
+                </span>
+              </div>
             </div>
-            <p className="text-xs mt-3 px-3 py-2 rounded" style={{ background: 'rgba(217,119,6,0.06)', color: 'var(--color-warning)' }}>
-              样本量不足 5 笔，数据仅供参考
-            </p>
+            {winRate && winRate.total < 5 && (
+              <p className="text-xs mt-3 px-3 py-2 rounded" style={{ background: 'rgba(217,119,6,0.06)', color: 'var(--color-warning)' }}>
+                样本量不足 5 笔，数据仅供参考
+              </p>
+            )}
           </div>
 
           {/* Module B: Tag win rates */}
@@ -208,7 +208,9 @@ export default function Intents() {
                 </tr>
               </thead>
               <tbody>
-                {tagStats.map(t => (
+                {tagPerf.length === 0 ? (
+                  <tr><td colSpan={5} className="px-4 py-8 text-center text-sm" style={{ color: 'var(--color-text-tertiary)' }}>暂无数据</td></tr>
+                ) : tagPerf.map(t => (
                   <tr key={t.tag} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}
                     onMouseEnter={e => (e.currentTarget.style.background = 'var(--color-bg-surface-hover)')}
                     onMouseLeave={e => (e.currentTarget.style.background = 'var(--color-bg-surface)')}>
@@ -216,11 +218,11 @@ export default function Intents() {
                       <span className="px-2 py-0.5 rounded-xs text-xs" style={{ background: 'var(--color-bg-tag)', color: 'var(--color-text-secondary)' }}>{t.tag}</span>
                     </td>
                     <td className="px-4 py-2.5 tabular-nums" style={{ color: 'var(--color-text-primary)' }}>{t.count}</td>
-                    <td className="px-4 py-2.5 tabular-nums" style={{ color: t.winRate > 0.5 ? 'var(--color-profit)' : 'var(--color-loss)' }}>
-                      {(t.winRate * 100).toFixed(0)}%
+                    <td className="px-4 py-2.5 tabular-nums" style={{ color: t.win_rate > 0.5 ? 'var(--color-profit)' : 'var(--color-loss)' }}>
+                      {(t.win_rate * 100).toFixed(0)}%
                     </td>
-                    <td className="px-4 py-2.5"><PnlNumber value={t.avgPnl} formatter={formatAmount} /></td>
-                    <td className="px-4 py-2.5 tabular-nums" style={{ color: 'var(--color-text-secondary)' }}>{t.avgDays}天</td>
+                    <td className="px-4 py-2.5"><PnlNumber value={n(t.avg_pnl)} formatter={formatAmount} /></td>
+                    <td className="px-4 py-2.5 tabular-nums" style={{ color: 'var(--color-text-secondary)' }}>{t.avg_hold_days.toFixed(1)}天</td>
                   </tr>
                 ))}
               </tbody>
@@ -277,7 +279,11 @@ export default function Intents() {
           {/* Module D: Monthly turnover */}
           <div className="rounded-lg p-5" style={{ background: 'var(--color-bg-surface)', border: '1px solid var(--color-border-subtle)' }}>
             <h3 className="text-base font-semibold mb-4" style={{ color: 'var(--color-text-primary)' }}>月换手率趋势</h3>
-            <ReactECharts option={turnoverChartOption} style={{ height: 200 }} />
+            {turnover.length === 0 ? (
+              <p className="text-sm text-center py-8" style={{ color: 'var(--color-text-tertiary)' }}>暂无数据</p>
+            ) : (
+              <ReactECharts option={turnoverChartOption} style={{ height: 200 }} />
+            )}
           </div>
         </div>
       )}

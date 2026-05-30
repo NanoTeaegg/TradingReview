@@ -38,7 +38,7 @@
 - [ ] `models/review.py`：`review_reports`（scope/snapshot/rule_version_id）
 - [ ] `models/rule.py`：`rule_versions`
 - [ ] `models/setting.py`：`app_settings`（key PK）
-- [ ] `models/market_cache.py`：`daily_prices`（unique ts_code+date）+ `index_daily_cache`（unique index_code+date）
+- [ ] `models/market_cache.py`：`market_daily_bars`（stock/index 统一日线缓存，unique instrument_type+ts_code+date）+ `market_sentiment_snapshots`（盘面情绪快照，unique trade_date）
 - [ ] `alembic revision --autogenerate` + `alembic upgrade head`
 - [ ] **验收**：所有表建成；`alembic upgrade` 无报错（禁止用 `create_all` 当正式建表）
 
@@ -67,14 +67,15 @@
 
 - [ ] `services/market.py` `MarketDataProvider`（TuShare 主 + akshare 兜底 + 重试）：
   - [ ] `get_latest_price(ts_codes)`→{price, pre_close}（盘中 akshare 实时 / 盘后 TuShare daily；皆失败上层提示不崩 1.6）
-  - [ ] `get_daily` / `get_index_daily`（写 `daily_prices` / `index_daily_cache` 缓存，缺补）
+  - [ ] `get_daily` / `get_index_daily`（统一写 `market_daily_bars` 缓存，缺补）
   - [ ] `trade_cal`（交易日历）
 - [ ] `services/sentiment.py`（akshare）：涨/跌/平家数与比例、涨停/跌停、成交额(亿)、数据日期/交易状态、情绪标签（>1.5 偏多/0.7–1.5 中性/<0.7 偏空）、非交易日休市
 - [ ] `services/pnl.py`：
   - [ ] FIFO 引擎：按 (trade_date,seq) 配对；buy/transfer_in 入批次队列；sell 队首消耗产 round-trip；净已实现 = 卖出额 − 配对买入成本 − 分摊买入费 − 分摊卖出费（1.2 对账差=0）；transfer_in 不计买入资金、不产生已实现
   - [ ] 持仓总览：数量/均价/最新价/市值/浮动盈亏&率/当日盈亏（1.1/1.3/1.4）
-  - [ ] 净值曲线：首笔成交日→今 逐交易日 持仓×当日收盘 = 账户市值，首日归一 1.0；叠加指数同期归一（0.1/0.2）
-  - [ ] 绩效摘要：总收益率/最大回撤/累计已实现/当前浮动（0.3）
+  - [ ] 出入金记录：`cash_flows` 表与 `GET/POST/DELETE /api/cash-flows`；第一条资金记录默认生效于最早成交日，后续记录默认生效于录入当日（4.2）
+  - [ ] 净值曲线：首笔成交日→今 逐交易日 以累计净入金、买卖现金流和持仓市值计算账户权益；净值=权益/累计净入金；叠加指数同期归一（0.1/0.2）
+  - [ ] 绩效摘要：总收益率/最大回撤/累计已实现/当前浮动；收益率与回撤基于累计净入金，无入金记录时显示空态（0.3）
 - [ ] `api/routes/trades.py`：`GET /api/trades?stock=&side=&start=&end=`
 - [ ] `api/routes/positions.py`：`GET /api/positions` / `/equity-curve?benchmark=` / `/summary`
 - [ ] `api/routes/market.py`：`GET /api/market/quotes?codes=` / `/sentiment`

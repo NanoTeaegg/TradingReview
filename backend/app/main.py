@@ -1,3 +1,4 @@
+import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -6,14 +7,30 @@ from app.core.config import settings
 from app.core.logging import setup_logging
 
 from app.api.routes import (
-    imports, trades, positions, intents, tags, stats, market, reviews, rules, settings as settings_router
+    imports, trades, positions, intents, tags, stats, market, reviews, rules, cash_flows, settings as settings_router
 )
+from app.services.sentiment import ensure_startup_market_sentiment_snapshot, run_market_sentiment_scheduler
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     setup_logging()
+    stop_event = asyncio.Event()
+    # 行情数据不在启动时自动拉取，改为页面按钮触发（首页「拉取最新」/设置「全量历史」）。
+    startup_task = asyncio.create_task(asyncio.to_thread(ensure_startup_market_sentiment_snapshot))
+    scheduler_task = asyncio.create_task(run_market_sentiment_scheduler(stop_event))
+    app.state.market_sentiment_startup_task = startup_task
+    app.state.market_sentiment_scheduler_task = scheduler_task
     yield
+    stop_event.set()
+    scheduler_task.cancel()
+    for task in (startup_task, scheduler_task):
+        if not task.done():
+            task.cancel()
+        try:
+            await task
+        except (asyncio.CancelledError, Exception):
+            pass
 
 
 app = FastAPI(title="TradingReview API", version="0.1.0", lifespan=lifespan)
@@ -48,4 +65,5 @@ app.include_router(stats.router, prefix="/api")
 app.include_router(market.router, prefix="/api")
 app.include_router(reviews.router, prefix="/api")
 app.include_router(rules.router, prefix="/api")
+app.include_router(cash_flows.router, prefix="/api")
 app.include_router(settings_router.router, prefix="/api")

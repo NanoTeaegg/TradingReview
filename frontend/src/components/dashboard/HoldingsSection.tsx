@@ -90,7 +90,7 @@ export default function HoldingsSection() {
           <span className="font-semibold tabular-nums" style={{ color: 'var(--color-text-primary)' }}>{formatAmount(totalMarketValue)}</span>
         </div>
         <div>
-          <span style={{ color: 'var(--color-text-tertiary)' }}>总浮动盈亏 </span>
+          <span style={{ color: 'var(--color-text-tertiary)' }}>总持仓盈亏 </span>
           <PnlNumber value={totalFloatPnl} formatter={formatAmount} className="font-semibold" />
         </div>
         <div>
@@ -105,9 +105,9 @@ export default function HoldingsSection() {
             <tr style={{ background: 'var(--color-bg-sidebar)' }}>
               {[
                 { label: '股票', align: 'left' },
-                { label: '持仓数量', align: 'right' },
-                { label: '持仓均价', align: 'right' },
-                { label: '最新价', align: 'right' },
+                { label: '持仓数量', align: 'left' },
+                { label: '持仓均价', align: 'left' },
+                { label: '最新价', align: 'left' },
               ].map(({ label, align }) => (
                 <th
                   key={label}
@@ -121,7 +121,7 @@ export default function HoldingsSection() {
                 <ThBtn col="market_value" label="市值" />
               </th>
               <th className="px-4 py-2.5 text-right" style={{ color: 'var(--color-text-secondary)', borderBottom: '1px solid var(--color-border-subtle)' }}>
-                <ThBtn col="float_pnl" label="浮动盈亏" />
+                <ThBtn col="float_pnl" label="持仓盈亏" />
               </th>
               <th className="px-4 py-2.5 text-right" style={{ color: 'var(--color-text-secondary)', borderBottom: '1px solid var(--color-border-subtle)' }}>
                 <ThBtn col="float_pnl_rate" label="盈亏率" />
@@ -146,14 +146,14 @@ export default function HoldingsSection() {
                     <span className="font-mono text-xs" style={{ color: 'var(--color-text-tertiary)' }}>{h.stock_code}</span>
                   </div>
                 </td>
-                <td className="px-4 text-right tabular-nums" style={{ color: 'var(--color-text-primary)' }}>
+                <td className="px-4 text-left tabular-nums" style={{ color: 'var(--color-text-primary)' }}>
                   {h.quantity.toLocaleString()}
                 </td>
-                <td className="px-4 text-right tabular-nums" style={{ color: 'var(--color-text-secondary)' }}>
-                  {marketLoading ? <Skeleton className="h-4 w-16 ml-auto" /> : h.avg_cost.toFixed(3)}
+                <td className="px-4 text-left tabular-nums" style={{ color: 'var(--color-text-secondary)' }}>
+                  {marketLoading ? <Skeleton className="h-4 w-16" /> : h.avg_cost.toFixed(3)}
                 </td>
-                <td className="px-4 text-right tabular-nums" style={{ color: 'var(--color-text-secondary)' }}>
-                  {marketLoading ? <Skeleton className="h-4 w-16 ml-auto" /> : h.latest_price?.toFixed(2) ?? '—'}
+                <td className="px-4 text-left tabular-nums" style={{ color: 'var(--color-text-secondary)' }}>
+                  {marketLoading ? <Skeleton className="h-4 w-16" /> : h.latest_price?.toFixed(2) ?? '—'}
                 </td>
                 <td className="px-4 text-right tabular-nums" style={{ color: 'var(--color-text-primary)' }}>
                   {marketLoading ? <Skeleton className="h-4 w-20 ml-auto" /> : formatAmount(h.market_value)}
