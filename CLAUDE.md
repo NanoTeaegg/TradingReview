@@ -35,6 +35,7 @@
 
 ## 版本管理规范
 - 主分支：`main`
+- 实现变更要自动检查是否要提交commit
 - 功能开发在 `feat/xxx` 分支，完成后合并 main
 - Commit 信息格式：`<type>: <subject>`（type: feat / fix / refactor / docs / style / chore）
 - 数据库结构变更必须通过 **Alembic** 迁移，禁止直接修改已有迁移文件

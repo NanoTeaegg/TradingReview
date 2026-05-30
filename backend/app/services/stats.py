@@ -11,12 +11,15 @@ from app.models.intent import TradeIntent
 from app.services.pnl import run_fifo, _load_trades, RoundTrip, ZERO, Q2
 
 
-def get_win_rate(db: Session, tag: Optional[str] = None) -> dict:
-    trades = _load_trades(db)
+def get_win_rate(db: Session, tag: Optional[str] = None, account_id: Optional[int] = None) -> dict:
+    trades = _load_trades(db, account_id=account_id)
     _, round_trips = run_fifo(trades)
 
     if tag:
-        intents = db.query(TradeIntent).all()
+        q = db.query(TradeIntent)
+        if account_id is not None:
+            q = q.filter(TradeIntent.account_id == account_id)
+        intents = q.all()
         tagged_trade_ids: set[int] = set()
         for intent in intents:
             tags = json.loads(intent.tags or "[]")
@@ -44,14 +47,20 @@ def get_win_rate(db: Session, tag: Optional[str] = None) -> dict:
     }
 
 
-def get_discipline(db: Session) -> dict:
-    total = db.query(Trade).filter(Trade.side.in_(["buy", "sell"])).count()
+def get_discipline(db: Session, account_id: Optional[int] = None) -> dict:
+    trades_q = db.query(Trade).filter(Trade.side.in_(["buy", "sell"]))
+    intents_q = db.query(TradeIntent).filter(TradeIntent.trade_id.isnot(None))
+    if account_id is not None:
+        trades_q = trades_q.filter(Trade.account_id == account_id)
+        intents_q = intents_q.filter(TradeIntent.account_id == account_id)
+
+    total = trades_q.count()
     if total == 0:
         return {"tagged_count": 0, "total_count": 0, "discipline_rate": 0.0, "warning": False}
 
-    intents = db.query(TradeIntent).filter(TradeIntent.trade_id.isnot(None)).all()
+    intents = intents_q.all()
     tagged_ids = {i.trade_id for i in intents}
-    tagged = db.query(Trade).filter(
+    tagged = trades_q.filter(
         Trade.side.in_(["buy", "sell"]),
         Trade.id.in_(tagged_ids)
     ).count()
@@ -65,7 +74,7 @@ def get_discipline(db: Session) -> dict:
     }
 
 
-def get_turnover(db: Session) -> list[dict]:
+def get_turnover(db: Session, account_id: Optional[int] = None) -> list[dict]:
     """Monthly turnover for last 6 months."""
     from app.services.pnl import get_positions
     today = date.today()
@@ -87,16 +96,22 @@ def get_turnover(db: Session) -> list[dict]:
 
         month_str = month_start.strftime("%Y-%m")
 
-        monthly_volume = db.query(Trade).filter(
+        monthly_q = db.query(Trade).filter(
             Trade.trade_date >= month_start,
             Trade.trade_date <= month_end,
             Trade.side.in_(["buy", "sell"]),
-        ).with_entities(Trade.amount).all()
+        )
+        if account_id is not None:
+            monthly_q = monthly_q.filter(Trade.account_id == account_id)
+        monthly_volume = monthly_q.with_entities(Trade.amount).all()
 
         total_amount = sum(Decimal(str(r[0])) for r in monthly_volume)
 
         # Month-start holdings value (approximate)
-        trades_before = db.query(Trade).filter(Trade.trade_date < month_start).all()
+        before_q = db.query(Trade).filter(Trade.trade_date < month_start)
+        if account_id is not None:
+            before_q = before_q.filter(Trade.account_id == account_id)
+        trades_before = before_q.all()
         if trades_before:
             lots, _ = run_fifo(trades_before)
             start_value = sum(
@@ -119,13 +134,16 @@ def get_turnover(db: Session) -> list[dict]:
     return results
 
 
-def get_tag_performance(db: Session) -> list[dict]:
+def get_tag_performance(db: Session, account_id: Optional[int] = None) -> list[dict]:
     """Per-tag stats: count, win_rate, avg_pnl, avg_hold_days."""
-    trades = _load_trades(db)
+    trades = _load_trades(db, account_id=account_id)
     _, round_trips = run_fifo(trades)
     trade_date_map = {t.id: t.trade_date for t in trades}
 
-    intents = db.query(TradeIntent).all()
+    intents_q = db.query(TradeIntent)
+    if account_id is not None:
+        intents_q = intents_q.filter(TradeIntent.account_id == account_id)
+    intents = intents_q.all()
     trade_intent_map: dict[int, list[str]] = {}
     for intent in intents:
         if intent.trade_id:
@@ -139,9 +157,11 @@ def get_tag_performance(db: Session) -> list[dict]:
         for tag in tags:
             tag_rts.setdefault(tag, []).append(rt)
 
-    all_tags = db.query(
-        __import__("app.models.intent", fromlist=["Tag"]).Tag
-    ).all()
+    Tag = __import__("app.models.intent", fromlist=["Tag"]).Tag
+    tags_q = db.query(Tag)
+    if account_id is not None:
+        tags_q = tags_q.filter(Tag.account_id == account_id)
+    all_tags = tags_q.all()
 
     results = []
     for tag_obj in all_tags:

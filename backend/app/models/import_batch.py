@@ -1,6 +1,6 @@
 from datetime import date, datetime
 from typing import Optional
-from sqlalchemy import String, Integer, Date, DateTime, ForeignKey, Boolean, func
+from sqlalchemy import String, Integer, Date, DateTime, ForeignKey, Boolean, UniqueConstraint, Index, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.db import Base
@@ -8,10 +8,17 @@ from app.core.db import Base
 
 class ImportBatch(Base):
     __tablename__ = "import_batches"
+    __table_args__ = (
+        UniqueConstraint("account_id", "file_hash", name="uq_import_batches_account_file_hash"),
+        Index("ix_import_batches_account_id", "account_id"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    account_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("accounts.id", ondelete="CASCADE"), nullable=False
+    )
     filename: Mapped[str] = mapped_column(String(255), nullable=False)
-    file_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    file_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     period_start: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     period_end: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     row_count: Mapped[int] = mapped_column(Integer, default=0)

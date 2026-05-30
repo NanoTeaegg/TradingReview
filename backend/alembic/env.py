@@ -12,6 +12,7 @@ from app.core.db import Base
 
 # Import all models so Alembic can detect them
 import app.models.import_batch
+import app.models.account
 import app.models.trade
 import app.models.intent
 import app.models.review

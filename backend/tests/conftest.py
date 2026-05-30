@@ -1,5 +1,6 @@
 # Import all models so SQLAlchemy relationship strings resolve correctly
 import app.models.import_batch
+import app.models.account
 import app.models.trade
 import app.models.intent
 import app.models.review
@@ -13,6 +14,7 @@ from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 
 from app.core.db import Base
+from app.models.account import Account
 
 
 @pytest.fixture
@@ -28,5 +30,7 @@ def db():
     Base.metadata.create_all(engine)
     Session = sessionmaker(bind=engine)
     session = Session()
+    session.add(Account(id=1, name="主账户", kind="live", is_default=True, sort_order=0))
+    session.commit()
     yield session
     session.close()

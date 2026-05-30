@@ -42,15 +42,20 @@ class RoundTrip:
     buy_tags: list[str] = field(default_factory=list)
 
 
-def _load_trades(db: Session, stock_code: Optional[str] = None) -> list[Trade]:
+def _load_trades(db: Session, stock_code: Optional[str] = None, account_id: Optional[int] = None) -> list[Trade]:
     q = db.query(Trade).order_by(Trade.trade_date, Trade.seq, Trade.id)
+    if account_id is not None:
+        q = q.filter(Trade.account_id == account_id)
     if stock_code:
         q = q.filter(Trade.stock_code == stock_code)
     return q.all()
 
 
-def _load_cash_flows(db: Session) -> list[CashFlow]:
-    return db.query(CashFlow).order_by(CashFlow.flow_date, CashFlow.id).all()
+def _load_cash_flows(db: Session, account_id: Optional[int] = None) -> list[CashFlow]:
+    q = db.query(CashFlow).order_by(CashFlow.flow_date, CashFlow.id)
+    if account_id is not None:
+        q = q.filter(CashFlow.account_id == account_id)
+    return q.all()
 
 
 def _cash_flow_amount(row: CashFlow) -> Decimal:
@@ -239,8 +244,8 @@ def _net_invested_by_code(trades: list[Trade]) -> dict[str, Decimal]:
     return invested
 
 
-def get_positions(db: Session) -> list[dict]:
-    trades = _load_trades(db)
+def get_positions(db: Session, account_id: Optional[int] = None) -> list[dict]:
+    trades = _load_trades(db, account_id=account_id)
     lots, _ = run_fifo(trades)
     net_invested = _net_invested_by_code(trades)
     as_of_date = trades[-1].trade_date if trades else latest_market_date()
@@ -415,7 +420,11 @@ def _account_cumulative_profit(
     return assets[-1] - assets[0] - net_flow
 
 
-def get_equity_curve(db: Session, benchmarks: Optional[list[tuple[str, str]]] = None) -> dict:
+def get_equity_curve(
+    db: Session,
+    benchmarks: Optional[list[tuple[str, str]]] = None,
+    account_id: Optional[int] = None,
+) -> dict:
     """账户收益率走势：时间加权净值 + 多基准 + 当日总资产 + 出入金流水。
 
     收益率口径以累计净入金（出入金）为本金；担保品划入/划出视为无效数据剔除。
@@ -424,8 +433,8 @@ def get_equity_curve(db: Session, benchmarks: Optional[list[tuple[str, str]]] = 
     benchmarks = benchmarks or DEFAULT_BENCHMARKS
     empty = {"dates": [], "nav": [], "total_assets": [], "flows": [], "benchmarks": []}
 
-    trades = _load_trades(db)
-    cash_flows = _load_cash_flows(db)
+    trades = _load_trades(db, account_id=account_id)
+    cash_flows = _load_cash_flows(db, account_id=account_id)
     if not cash_flows:
         return empty
 
@@ -476,9 +485,9 @@ def get_equity_curve(db: Session, benchmarks: Optional[list[tuple[str, str]]] = 
     }
 
 
-def get_performance_summary(db: Session) -> dict:
-    trades = _load_trades(db)
-    cash_flows = _load_cash_flows(db)
+def get_performance_summary(db: Session, account_id: Optional[int] = None) -> dict:
+    trades = _load_trades(db, account_id=account_id)
+    cash_flows = _load_cash_flows(db, account_id=account_id)
     if not trades:
         net_deposit = _net_deposit(cash_flows)
         return {
@@ -494,7 +503,7 @@ def get_performance_summary(db: Session) -> dict:
 
     _, round_trips = run_fifo(trades)
 
-    positions = get_positions(db)
+    positions = get_positions(db, account_id=account_id)
     held_codes = {p["stock_code"] for p in positions}
     # 保本价口径下，持仓中股票的已实现盈亏已折进保本价（计入 total_float），
     # 故累计已实现盈亏只统计已清仓股票，避免与持仓盈亏重复计算。

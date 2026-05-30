@@ -12,14 +12,18 @@ class Trade(Base):
     __tablename__ = "trades"
     __table_args__ = (
         UniqueConstraint(
-            "trade_date", "stock_code", "side", "price", "quantity", "amount",
+            "account_id", "trade_date", "stock_code", "side", "price", "quantity", "amount",
             name="uq_trade_identity"
         ),
+        Index("ix_trades_account_id", "account_id"),
         Index("ix_trades_stock_code", "stock_code"),
         Index("ix_trades_trade_date", "trade_date"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    account_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("accounts.id", ondelete="CASCADE"), nullable=False
+    )
     trade_date: Mapped[date] = mapped_column(Date, nullable=False)
     seq: Mapped[int] = mapped_column(Integer, default=0)
     ts_code: Mapped[str] = mapped_column(String(12), nullable=False)

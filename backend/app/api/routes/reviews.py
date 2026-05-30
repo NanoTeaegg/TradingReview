@@ -6,7 +6,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_session
+from app.api.deps import get_current_account_id, get_session
 from app.models.review import ReviewReport
 from app.services.review import stream_review
 
@@ -22,7 +22,11 @@ class ReviewRequest(BaseModel):
 
 
 @router.post("/reviews")
-async def create_review(body: ReviewRequest, db: Session = Depends(get_session)):
+async def create_review(
+    body: ReviewRequest,
+    db: Session = Depends(get_session),
+    account_id: int = Depends(get_current_account_id),
+):
     if body.scope not in ("trade", "stock", "period"):
         raise HTTPException(status_code=400, detail="scope must be trade/stock/period")
 
@@ -34,6 +38,7 @@ async def create_review(body: ReviewRequest, db: Session = Depends(get_session))
             stock_code=body.stock_code,
             period_start=body.period_start,
             period_end=body.period_end,
+            account_id=account_id,
         ):
             yield chunk
 
@@ -41,14 +46,17 @@ async def create_review(body: ReviewRequest, db: Session = Depends(get_session))
 
 
 @router.get("/reviews")
-def list_reviews(db: Session = Depends(get_session)):
-    reports = db.query(ReviewReport).order_by(ReviewReport.created_at.desc()).all()
+def list_reviews(db: Session = Depends(get_session), account_id: int = Depends(get_current_account_id)):
+    reports = db.query(ReviewReport).filter(
+        ReviewReport.account_id == account_id
+    ).order_by(ReviewReport.created_at.desc()).all()
     return [
         {
             "id": r.id,
             "scope": r.scope,
             "scope_desc": _scope_desc(r),
             "model": r.model,
+            "provider": r.provider,
             "created_at": r.created_at.isoformat() if r.created_at else None,
             "trade_id": r.trade_id,
             "stock_code": r.stock_code,
@@ -58,8 +66,15 @@ def list_reviews(db: Session = Depends(get_session)):
 
 
 @router.get("/reviews/{review_id}")
-def get_review(review_id: int, db: Session = Depends(get_session)):
-    report = db.query(ReviewReport).filter(ReviewReport.id == review_id).first()
+def get_review(
+    review_id: int,
+    db: Session = Depends(get_session),
+    account_id: int = Depends(get_current_account_id),
+):
+    report = db.query(ReviewReport).filter(
+        ReviewReport.id == review_id,
+        ReviewReport.account_id == account_id,
+    ).first()
     if not report:
         raise HTTPException(status_code=404, detail="Review not found")
     return {
@@ -68,6 +83,7 @@ def get_review(review_id: int, db: Session = Depends(get_session)):
         "scope_desc": _scope_desc(report),
         "content": report.content,
         "model": report.model,
+        "provider": report.provider,
         "rule_version_id": report.rule_version_id,
         "input_snapshot": report.input_snapshot,
         "created_at": report.created_at.isoformat() if report.created_at else None,

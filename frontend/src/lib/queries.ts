@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import api from './api'
+import { useCurrentAccountId, useSetCurrentAccountId } from './account'
 
 // ── helpers ──────────────────────────────────────────────────
 export const n = (v: string | number | null | undefined): number =>
@@ -152,9 +153,23 @@ export interface TagPerf {
   avg_hold_days: number
 }
 
-export interface OllamaSettings {
+export type LLMProvider = 'ollama' | 'openai_compatible'
+
+export interface LLMSettings {
+  provider: LLMProvider
   base_url: string
   model: string
+  api_key?: string | null
+  api_key_masked?: string | null
+  has_api_key?: boolean
+}
+
+export interface LLMPingResult {
+  ok: boolean
+  provider: LLMProvider
+  models?: string[]
+  base_url: string
+  error?: string
 }
 
 export interface CashFlow {
@@ -176,19 +191,117 @@ export interface ImportBatch {
   period_start: string | null
   period_end: string | null
   row_count: number
-  imported_at: string
+  imported_at: string | null
+}
+
+export type AccountKind = 'live' | 'demo'
+
+export interface Account {
+  id: number
+  name: string
+  kind: AccountKind
+  is_default: boolean
+  sort_order: number
+  created_at: string | null
+}
+
+function useAccountScopedKey(key: unknown[]) {
+  const accountId = useCurrentAccountId()
+  return { accountId, queryKey: [...key, accountId] as const }
+}
+
+export function invalidateAccountScopedQueries(qc: ReturnType<typeof useQueryClient>) {
+  for (const key of [
+    'trades',
+    'positions',
+    'summary',
+    'equity-curve',
+    'intents',
+    'tags',
+    'win-rate',
+    'discipline',
+    'turnover',
+    'tag-performance',
+    'reviews',
+    'cash-flows',
+    'imports',
+    'rules',
+    'rule-versions',
+  ]) {
+    qc.invalidateQueries({ queryKey: [key] })
+  }
+}
+
+// ── accounts ─────────────────────────────────────────────────
+
+export function useAccounts() {
+  return useQuery<Account[]>({
+    queryKey: ['accounts'],
+    queryFn: () => api.get('/api/accounts').then(r => r.data),
+  })
+}
+
+export function useCreateAccount() {
+  const qc = useQueryClient()
+  const setCurrentAccountId = useSetCurrentAccountId()
+  return useMutation({
+    mutationFn: (data: { name: string; kind?: AccountKind }) =>
+      api.post('/api/accounts', data).then(r => r.data as Account),
+    onSuccess: (account) => {
+      setCurrentAccountId(account.id)
+      qc.invalidateQueries({ queryKey: ['accounts'] })
+      invalidateAccountScopedQueries(qc)
+    },
+  })
+}
+
+export function useUpdateAccount() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, data }: { id: number; data: Partial<Pick<Account, 'name' | 'kind' | 'is_default' | 'sort_order'>> }) =>
+      api.patch(`/api/accounts/${id}`, data).then(r => r.data as Account),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['accounts'] }),
+  })
+}
+
+export function useDeleteAccount() {
+  const qc = useQueryClient()
+  const accountId = useCurrentAccountId()
+  const setCurrentAccountId = useSetCurrentAccountId()
+  return useMutation({
+    mutationFn: ({ id, name }: { id: number; name: string }) =>
+      api.delete(`/api/accounts/${id}`, { data: { name } }).then(r => r.data),
+    onSuccess: (_, vars) => {
+      if (accountId === vars.id) setCurrentAccountId(null)
+      qc.invalidateQueries({ queryKey: ['accounts'] })
+      invalidateAccountScopedQueries(qc)
+    },
+  })
+}
+
+export function useCopyRuleToCurrentAccount() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (fromAccountId: number) =>
+      api.post(`/api/rules/copy?from_account_id=${fromAccountId}`).then(r => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['rules'] })
+      qc.invalidateQueries({ queryKey: ['rule-versions'] })
+    },
+  })
 }
 
 // ── trades ───────────────────────────────────────────────────
 
 export function useTrades(params?: { stock?: string; side?: string; start?: string; end?: string }) {
+  const { queryKey } = useAccountScopedKey(['trades', params])
   const query = new URLSearchParams()
   if (params?.stock) query.set('stock', params.stock)
   if (params?.side && params.side !== 'all') query.set('side', params.side)
   if (params?.start) query.set('start', params.start)
   if (params?.end) query.set('end', params.end)
   return useQuery<Trade[]>({
-    queryKey: ['trades', params],
+    queryKey,
     queryFn: () => api.get(`/api/trades?${query}`).then(r => r.data),
   })
 }
@@ -196,8 +309,9 @@ export function useTrades(params?: { stock?: string; side?: string; start?: stri
 // ── positions ────────────────────────────────────────────────
 
 export function usePositions() {
+  const { queryKey } = useAccountScopedKey(['positions'])
   return useQuery<Position[]>({
-    queryKey: ['positions'],
+    queryKey,
     queryFn: () => api.get('/api/positions').then(r => r.data),
   })
 }
@@ -208,16 +322,18 @@ const HEAVY_QUERY_OPTS = {
 } as const
 
 export function useSummary() {
+  const { queryKey } = useAccountScopedKey(['summary'])
   return useQuery<Summary>({
-    queryKey: ['summary'],
+    queryKey,
     queryFn: () => api.get('/api/positions/summary').then(r => r.data),
     ...HEAVY_QUERY_OPTS,
   })
 }
 
 export function useEquityCurve() {
+  const { queryKey } = useAccountScopedKey(['equity-curve'])
   return useQuery<EquityCurve>({
-    queryKey: ['equity-curve'],
+    queryKey,
     queryFn: () => api.get('/api/positions/equity-curve').then(r => r.data),
     ...HEAVY_QUERY_OPTS,
   })
@@ -311,8 +427,9 @@ export function useCancelFullHistory() {
 // ── intents ──────────────────────────────────────────────────
 
 export function useIntents(filterCode?: string) {
+  const { queryKey } = useAccountScopedKey(['intents'])
   return useQuery<Intent[]>({
-    queryKey: ['intents'],
+    queryKey,
     queryFn: () => api.get('/api/intents').then(r => r.data),
     select: data =>
       filterCode
@@ -342,8 +459,9 @@ export function useCreateIntent() {
 // ── tags ─────────────────────────────────────────────────────
 
 export function useTags() {
+  const { queryKey } = useAccountScopedKey(['tags'])
   return useQuery<Tag[]>({
-    queryKey: ['tags'],
+    queryKey,
     queryFn: () => api.get('/api/tags').then(r => r.data),
   })
 }
@@ -376,29 +494,33 @@ export function useDeleteTag() {
 // ── stats ────────────────────────────────────────────────────
 
 export function useWinRate(tag?: string) {
+  const { queryKey } = useAccountScopedKey(['win-rate', tag])
   return useQuery<WinRate>({
-    queryKey: ['win-rate', tag],
+    queryKey,
     queryFn: () => api.get(`/api/stats/win-rate${tag ? `?tag=${tag}` : ''}`).then(r => r.data),
   })
 }
 
 export function useDiscipline() {
+  const { queryKey } = useAccountScopedKey(['discipline'])
   return useQuery<Discipline>({
-    queryKey: ['discipline'],
+    queryKey,
     queryFn: () => api.get('/api/stats/discipline').then(r => r.data),
   })
 }
 
 export function useTurnover() {
+  const { queryKey } = useAccountScopedKey(['turnover'])
   return useQuery<TurnoverItem[]>({
-    queryKey: ['turnover'],
+    queryKey,
     queryFn: () => api.get('/api/stats/turnover').then(r => r.data),
   })
 }
 
 export function useTagPerformance() {
+  const { queryKey } = useAccountScopedKey(['tag-performance'])
   return useQuery<TagPerf[]>({
-    queryKey: ['tag-performance'],
+    queryKey,
     queryFn: () => api.get('/api/stats/tag-performance').then(r => r.data),
   })
 }
@@ -406,40 +528,42 @@ export function useTagPerformance() {
 // ── reviews ──────────────────────────────────────────────────
 
 export function useReviews() {
+  const { queryKey } = useAccountScopedKey(['reviews'])
   return useQuery<Review[]>({
-    queryKey: ['reviews'],
+    queryKey,
     queryFn: () => api.get('/api/reviews').then(r => r.data),
   })
 }
 
-// ── ollama settings ──────────────────────────────────────────
+// ── LLM settings ─────────────────────────────────────────────
 
-export function useOllamaSettings() {
-  return useQuery<OllamaSettings>({
-    queryKey: ['ollama-settings'],
-    queryFn: () => api.get('/api/settings/ollama').then(r => r.data),
+export function useLLMSettings() {
+  return useQuery<LLMSettings>({
+    queryKey: ['llm-settings'],
+    queryFn: () => api.get('/api/settings/llm').then(r => r.data),
   })
 }
 
-export function useSaveOllamaSettings() {
+export function useSaveLLMSettings() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (data: OllamaSettings) => api.put('/api/settings/ollama', data).then(r => r.data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['ollama-settings'] }),
+    mutationFn: (data: LLMSettings) => api.put('/api/settings/llm', data).then(r => r.data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['llm-settings'] }),
   })
 }
 
-export function usePingOllama() {
-  return useMutation({
-    mutationFn: () => api.post('/api/settings/ollama/ping').then(r => r.data),
+export function usePingLLM() {
+  return useMutation<LLMPingResult>({
+    mutationFn: () => api.post('/api/settings/llm/ping').then(r => r.data),
   })
 }
 
 // ── cash flows ───────────────────────────────────────────────
 
 export function useCashFlows() {
+  const { queryKey } = useAccountScopedKey(['cash-flows'])
   return useQuery<CashFlowList>({
-    queryKey: ['cash-flows'],
+    queryKey,
     queryFn: () => api.get('/api/cash-flows').then(r => r.data),
   })
 }
@@ -472,8 +596,9 @@ export function useDeleteCashFlow() {
 // ── imports ──────────────────────────────────────────────────
 
 export function useImportBatches() {
+  const { queryKey } = useAccountScopedKey(['imports'])
   return useQuery<ImportBatch[]>({
-    queryKey: ['imports'],
+    queryKey,
     queryFn: () => api.get('/api/imports').then(r => r.data),
   })
 }

@@ -1,5 +1,6 @@
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { Link, NavLink } from 'react-router-dom'
+import { useQueryClient } from '@tanstack/react-query'
 import {
   Upload,
   History,
@@ -7,6 +8,10 @@ import {
   CheckCircle2,
   AlertCircle,
   XCircle,
+  WalletCards,
+  ChevronDown,
+  Check,
+  Loader2,
 } from 'lucide-react'
 import {
   Dialog,
@@ -14,8 +19,15 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { mockImportBatches } from '@/lib/mock'
 import { formatDatetime } from '@/lib/format'
+import { useCurrentAccountId, useSetCurrentAccountId } from '@/lib/account'
+import {
+  invalidateAccountScopedQueries,
+  useAccounts,
+  useImportBatches,
+  useUploadImport,
+  type Account,
+} from '@/lib/queries'
 
 type UploadState =
   | { type: 'idle' }
@@ -33,11 +45,45 @@ const navItems: { to: string; label: string; end?: boolean }[] = [
 ]
 
 export default function Topbar() {
+  const queryClient = useQueryClient()
+  const currentAccountId = useCurrentAccountId()
+  const setCurrentAccountId = useSetCurrentAccountId()
+  const { data: accounts = [], isLoading: accountsLoading } = useAccounts()
+  const uploadImport = useUploadImport()
   const [uploadState, setUploadState] = useState<UploadState>({ type: 'idle' })
   const [showUploadResult, setShowUploadResult] = useState(false)
   const [showHistory, setShowHistory] = useState(false)
+  const [accountOpen, setAccountOpen] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const batches = mockImportBatches
+  const accountMenuRef = useRef<HTMLDivElement>(null)
+  const { data: batches = [] } = useImportBatches()
+
+  const currentAccount = useMemo(() => {
+    return accounts.find(account => account.id === currentAccountId)
+      ?? accounts.find(account => account.is_default)
+      ?? accounts[0]
+      ?? null
+  }, [accounts, currentAccountId])
+
+  useEffect(() => {
+    if (!accounts.length) return
+    const exists = currentAccountId != null && accounts.some(account => account.id === currentAccountId)
+    if (!exists) {
+      const fallback = accounts.find(account => account.is_default) ?? accounts[0]
+      setCurrentAccountId(fallback.id)
+    }
+  }, [accounts, currentAccountId, setCurrentAccountId])
+
+  useEffect(() => {
+    if (!accountOpen) return
+    const handleClick = (event: MouseEvent) => {
+      if (!accountMenuRef.current?.contains(event.target as Node)) {
+        setAccountOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [accountOpen])
 
   const handleUploadClick = () => {
     fileInputRef.current?.click()
@@ -54,11 +100,35 @@ export default function Topbar() {
     }
     setUploadState({ type: 'parsing', filename: file.name })
     setShowUploadResult(true)
-    setTimeout(() => {
-      setUploadState({ type: 'success', filename: file.name, success: 248, skipped: 12, failed: 2 })
-    }, 1500)
+    uploadImport.mutate(file, {
+      onSuccess: (result) => {
+        setUploadState({
+          type: 'success',
+          filename: file.name,
+          success: result.inserted ?? 0,
+          skipped: result.skipped_dup ?? 0,
+          failed: result.failed?.length ?? 0,
+        })
+      },
+      onError: (error: unknown) => {
+        const message = error instanceof Error ? error.message : '导入失败，请检查文件内容'
+        setUploadState({ type: 'error', message })
+      },
+    })
     e.target.value = ''
-  }, [])
+  }, [uploadImport])
+
+  function switchAccount(account: Account) {
+    if (account.id === currentAccountId) {
+      setAccountOpen(false)
+      return
+    }
+    setCurrentAccountId(account.id)
+    invalidateAccountScopedQueries(queryClient)
+    setAccountOpen(false)
+  }
+
+  const accountLabel = (account: Account) => account.is_default ? '模拟数据' : account.name
 
   const closeUploadResult = () => {
     setShowUploadResult(false)
@@ -107,6 +177,59 @@ export default function Topbar() {
         </Link>
 
         <div className="flex-1" />
+
+        <div className="relative" ref={accountMenuRef}>
+          <button
+            type="button"
+            className={actionClass}
+            style={{
+              color: 'var(--color-text-secondary)',
+              background: 'var(--color-bg-surface)',
+              border: '1px solid var(--color-border-subtle)',
+            }}
+            disabled={accountsLoading}
+            onClick={() => setAccountOpen(open => !open)}
+            aria-haspopup="menu"
+            aria-expanded={accountOpen}
+          >
+            {accountsLoading ? <Loader2 size={16} className="animate-spin" /> : <WalletCards size={16} strokeWidth={1.8} />}
+            <span className="max-w-32 truncate">{currentAccount ? accountLabel(currentAccount) : '模拟数据'}</span>
+            <ChevronDown size={16} strokeWidth={1.8} />
+          </button>
+
+          {accountOpen && (
+            <div
+              className="absolute right-0 top-[calc(100%+8px)] z-50 w-72 overflow-hidden rounded-lg"
+              style={{
+                background: 'var(--color-bg-surface)',
+                border: '1px solid var(--color-border-subtle)',
+                boxShadow: 'var(--shadow-sm)',
+              }}
+              role="menu"
+            >
+              <div className="max-h-72 overflow-y-auto py-1">
+                {accounts.map(account => (
+                  <button
+                    key={account.id}
+                    type="button"
+                    className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm transition-colors duration-[120ms]"
+                    style={{
+                      color: 'var(--color-text-primary)',
+                      background: account.id === currentAccount?.id ? 'var(--color-bg-surface-selected)' : 'transparent',
+                    }}
+                    onClick={() => switchAccount(account)}
+                    role="menuitem"
+                  >
+                    <span className="flex h-4 w-4 items-center justify-center">
+                      {account.id === currentAccount?.id && <Check size={14} style={{ color: 'var(--color-primary)' }} />}
+                    </span>
+                    <span className="min-w-0 flex-1 truncate">{accountLabel(account)}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
 
         {/* Upload button */}
         <button
@@ -306,7 +429,7 @@ export default function Topbar() {
                           {b.row_count}
                         </td>
                         <td className="px-4 py-3 text-sm" style={{ color: 'var(--color-text-tertiary)' }}>
-                          {formatDatetime(b.imported_at)}
+                          {b.imported_at ? formatDatetime(b.imported_at) : '—'}
                         </td>
                       </tr>
                     ))}

@@ -1,4 +1,4 @@
-"""Assemble review prompt and stream from Ollama."""
+"""Assemble review prompt and stream from the configured LLM provider."""
 import json
 import logging
 from datetime import date
@@ -7,22 +7,22 @@ from typing import AsyncGenerator, Optional
 import httpx
 from sqlalchemy.orm import Session
 
-from app.core.config import settings
 from app.models.review import ReviewReport
 from app.models.trade import Trade
 from app.models.intent import TradeIntent
+from app.services.llm import LLMConfig, get_llm_config
 from app.services.rules import get_current_rule
 
 logger = logging.getLogger("tradingreview.review")
 
 
 def _build_snapshot(db: Session, scope: str, trade_id: Optional[int], stock_code: Optional[str],
-                    period_start: Optional[date], period_end: Optional[date]) -> dict:
-    trades_q = db.query(Trade)
-    intents_q = db.query(TradeIntent)
+                    period_start: Optional[date], period_end: Optional[date], account_id: int) -> dict:
+    trades_q = db.query(Trade).filter(Trade.account_id == account_id)
+    intents_q = db.query(TradeIntent).filter(TradeIntent.account_id == account_id)
 
     if scope == "trade" and trade_id:
-        trade = db.query(Trade).filter(Trade.id == trade_id).first()
+        trade = db.query(Trade).filter(Trade.id == trade_id, Trade.account_id == account_id).first()
         trades_data = [_trade_dict(trade)] if trade else []
         intents = intents_q.filter(TradeIntent.trade_id == trade_id).all()
     elif scope == "stock" and stock_code:
@@ -37,7 +37,7 @@ def _build_snapshot(db: Session, scope: str, trade_id: Optional[int], stock_code
         trades_data = []
         intents = []
 
-    rule = get_current_rule(db)
+    rule = get_current_rule(db, account_id=account_id)
     rule_content = rule.content if rule else ""
     rule_version_id = rule.id if rule else None
 
@@ -103,6 +103,62 @@ def _build_prompt(snapshot: dict) -> str:
 请用中文回答，结构清晰，言简意赅。"""
 
 
+async def _stream_ollama(config: LLMConfig, prompt: str) -> AsyncGenerator[str, None]:
+    payload = {
+        "model": config.model,
+        "stream": True,
+        "messages": [{"role": "user", "content": prompt}],
+    }
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        async with client.stream("POST", f"{config.base_url.rstrip('/')}/api/chat", json=payload) as resp:
+            resp.raise_for_status()
+            async for line in resp.aiter_lines():
+                if not line.strip():
+                    continue
+                try:
+                    data = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                token = data.get("message", {}).get("content", "")
+                if token:
+                    yield token
+                if data.get("done"):
+                    break
+
+
+async def _stream_openai_compatible(config: LLMConfig, prompt: str) -> AsyncGenerator[str, None]:
+    payload = {
+        "model": config.model,
+        "stream": True,
+        "messages": [{"role": "user", "content": prompt}],
+    }
+    headers = {"Authorization": f"Bearer {config.api_key}"} if config.api_key else {}
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        async with client.stream(
+            "POST",
+            f"{config.base_url.rstrip('/')}/chat/completions",
+            json=payload,
+            headers=headers,
+        ) as resp:
+            resp.raise_for_status()
+            async for line in resp.aiter_lines():
+                if not line.startswith("data:"):
+                    continue
+                chunk = line.removeprefix("data:").strip()
+                if not chunk or chunk == "[DONE]":
+                    break
+                try:
+                    data = json.loads(chunk)
+                except json.JSONDecodeError:
+                    continue
+                choices = data.get("choices") or []
+                if not choices:
+                    continue
+                token = choices[0].get("delta", {}).get("content", "")
+                if token:
+                    yield token
+
+
 async def stream_review(
     db: Session,
     scope: str,
@@ -110,51 +166,43 @@ async def stream_review(
     stock_code: Optional[str] = None,
     period_start: Optional[date] = None,
     period_end: Optional[date] = None,
+    account_id: Optional[int] = None,
 ) -> AsyncGenerator[str, None]:
-    snapshot = _build_snapshot(db, scope, trade_id, stock_code, period_start, period_end)
+    if account_id is None:
+        from app.api.deps import ensure_default_account
+        account_id = ensure_default_account(db).id
+    snapshot = _build_snapshot(db, scope, trade_id, stock_code, period_start, period_end, account_id)
     prompt = _build_prompt(snapshot)
     rule_version_id = snapshot.get("rule_version_id")
-
-    ollama_url = f"{settings.OLLAMA_BASE_URL}/api/chat"
-    payload = {
-        "model": settings.OLLAMA_MODEL,
-        "stream": True,
-        "messages": [{"role": "user", "content": prompt}],
-    }
+    config = get_llm_config(db)
 
     full_content = []
 
     try:
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            async with client.stream("POST", ollama_url, json=payload) as resp:
-                resp.raise_for_status()
-                async for line in resp.aiter_lines():
-                    if not line.strip():
-                        continue
-                    try:
-                        data = json.loads(line)
-                        token = data.get("message", {}).get("content", "")
-                        if token:
-                            full_content.append(token)
-                            yield f"data: {json.dumps({'token': token}, ensure_ascii=False)}\n\n"
-                        if data.get("done"):
-                            break
-                    except json.JSONDecodeError:
-                        continue
+        stream = (
+            _stream_ollama(config, prompt)
+            if config.provider == "ollama"
+            else _stream_openai_compatible(config, prompt)
+        )
+        async for token in stream:
+            full_content.append(token)
+            yield f"data: {json.dumps({'token': token}, ensure_ascii=False)}\n\n"
     except Exception as e:
-        logger.error(f"Ollama stream error: {e}")
+        logger.error(f"LLM stream error: {e}")
         yield f"data: {json.dumps({'error': str(e)})}\n\n"
 
     content = "".join(full_content)
     if content:
         report = ReviewReport(
+            account_id=account_id,
             scope=scope,
             trade_id=trade_id,
             stock_code=stock_code,
             period_start=period_start,
             period_end=period_end,
             content=content,
-            model=settings.OLLAMA_MODEL,
+            provider=config.provider,
+            model=config.model,
             rule_version_id=rule_version_id,
             input_snapshot=json.dumps(snapshot, ensure_ascii=False),
         )

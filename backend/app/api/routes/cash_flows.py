@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_session
+from app.api.deps import get_current_account_id, get_session
 from app.models.cash_flow import CashFlow
 from app.models.trade import Trade
 
@@ -28,8 +28,8 @@ def _serialize(row: CashFlow) -> dict:
     }
 
 
-def _net_deposit(db: Session) -> Decimal:
-    rows = db.query(CashFlow).all()
+def _net_deposit(db: Session, account_id: int) -> Decimal:
+    rows = db.query(CashFlow).filter(CashFlow.account_id == account_id).all()
     total = Decimal("0")
     for row in rows:
         total += row.amount if row.flow_type == "deposit" else -row.amount
@@ -37,16 +37,22 @@ def _net_deposit(db: Session) -> Decimal:
 
 
 @router.get("/cash-flows")
-def list_cash_flows(db: Session = Depends(get_session)):
-    rows = db.query(CashFlow).order_by(CashFlow.flow_date.desc(), CashFlow.id.desc()).all()
+def list_cash_flows(db: Session = Depends(get_session), account_id: int = Depends(get_current_account_id)):
+    rows = db.query(CashFlow).filter(
+        CashFlow.account_id == account_id
+    ).order_by(CashFlow.flow_date.desc(), CashFlow.id.desc()).all()
     return {
         "items": [_serialize(row) for row in rows],
-        "net_deposit": str(_net_deposit(db)),
+        "net_deposit": str(_net_deposit(db, account_id)),
     }
 
 
 @router.post("/cash-flows")
-def create_cash_flow(body: CashFlowCreate, db: Session = Depends(get_session)):
+def create_cash_flow(
+    body: CashFlowCreate,
+    db: Session = Depends(get_session),
+    account_id: int = Depends(get_current_account_id),
+):
     if body.flow_type not in {"deposit", "withdraw"}:
         raise HTTPException(status_code=400, detail="flow_type must be deposit or withdraw")
 
@@ -58,11 +64,11 @@ def create_cash_flow(body: CashFlowCreate, db: Session = Depends(get_session)):
     if amount <= 0:
         raise HTTPException(status_code=400, detail="amount must be greater than 0")
 
-    existing_count = db.query(func.count(CashFlow.id)).scalar() or 0
-    first_trade_date = db.query(func.min(Trade.trade_date)).scalar()
+    existing_count = db.query(func.count(CashFlow.id)).filter(CashFlow.account_id == account_id).scalar() or 0
+    first_trade_date = db.query(func.min(Trade.trade_date)).filter(Trade.account_id == account_id).scalar()
     flow_date = first_trade_date if existing_count == 0 and first_trade_date else date.today()
 
-    row = CashFlow(flow_date=flow_date, flow_type=body.flow_type, amount=amount)
+    row = CashFlow(account_id=account_id, flow_date=flow_date, flow_type=body.flow_type, amount=amount)
     db.add(row)
     db.commit()
     db.refresh(row)
@@ -70,8 +76,12 @@ def create_cash_flow(body: CashFlowCreate, db: Session = Depends(get_session)):
 
 
 @router.delete("/cash-flows/{flow_id}")
-def delete_cash_flow(flow_id: int, db: Session = Depends(get_session)):
-    row = db.get(CashFlow, flow_id)
+def delete_cash_flow(
+    flow_id: int,
+    db: Session = Depends(get_session),
+    account_id: int = Depends(get_current_account_id),
+):
+    row = db.query(CashFlow).filter(CashFlow.id == flow_id, CashFlow.account_id == account_id).first()
     if not row:
         raise HTTPException(status_code=404, detail="cash flow not found")
     db.delete(row)

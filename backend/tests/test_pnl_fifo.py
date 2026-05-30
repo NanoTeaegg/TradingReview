@@ -5,6 +5,7 @@ from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 
 from app.core.db import Base
+from app.models.account import Account
 from app.models.market_cache import MarketDailyBar
 from app.models.trade import Trade
 from app.services.pnl import get_positions, run_fifo
@@ -16,6 +17,8 @@ def db():
     Base.metadata.create_all(engine)
     Session = sessionmaker(bind=engine)
     session = Session()
+    session.add(Account(id=1, name="主账户", kind="live", is_default=True, sort_order=0))
+    session.commit()
     yield session
     session.close()
 
@@ -23,6 +26,7 @@ def db():
 def make_trade(id, code, side, price, qty, amount, date_=date(2026, 1, 1), seq=0, fee=Decimal("0")):
     t = Trade(
         id=id,
+        account_id=1,
         trade_date=date_,
         seq=seq,
         ts_code=f"{code}.SZ",

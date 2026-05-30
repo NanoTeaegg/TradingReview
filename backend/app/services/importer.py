@@ -103,10 +103,13 @@ def _load_dataframe(content: bytes) -> pd.DataFrame:
     return df.astype(str)
 
 
-def import_file(db: Session, filename: str, content: bytes) -> ImportResult:
+def import_file(db: Session, filename: str, content: bytes, account_id: int) -> ImportResult:
     file_hash = _sha256(content)
 
-    existing = db.query(ImportBatch).filter(ImportBatch.file_hash == file_hash).first()
+    existing = db.query(ImportBatch).filter(
+        ImportBatch.account_id == account_id,
+        ImportBatch.file_hash == file_hash,
+    ).first()
     if existing:
         raise ValueError(f"文件已导入（批次 ID={existing.id}）")
 
@@ -117,7 +120,7 @@ def import_file(db: Session, filename: str, content: bytes) -> ImportResult:
     if missing:
         raise ValueError(f"缺少列：{missing}")
 
-    batch = ImportBatch(filename=filename, file_hash=file_hash, row_count=0)
+    batch = ImportBatch(account_id=account_id, filename=filename, file_hash=file_hash, row_count=0)
     db.add(batch)
     db.flush()
 
@@ -141,7 +144,7 @@ def import_file(db: Session, filename: str, content: bytes) -> ImportResult:
         db.flush()
 
         try:
-            trade = _parse_row(row, raw_row.id, batch.id)
+            trade = _parse_row(row, raw_row.id, batch.id, account_id)
         except Exception as e:
             raw_row.error = str(e)
             failed.append({"row_no": row_no, "raw_text": raw_text, "error": str(e)})
@@ -185,7 +188,7 @@ def import_file(db: Session, filename: str, content: bytes) -> ImportResult:
     return ImportResult(batch_id=batch.id, inserted=inserted, skipped_dup=skipped_dup, failed=failed)
 
 
-def _parse_row(row: "pd.Series", raw_row_id: int, batch_id: int) -> Trade:
+def _parse_row(row: "pd.Series", raw_row_id: int, batch_id: int, account_id: int) -> Trade:
     date_str = str(row["成交日期"]).strip()
     if len(date_str) == 8:
         td = date(int(date_str[:4]), int(date_str[4:6]), int(date_str[6:8]))
@@ -218,6 +221,7 @@ def _parse_row(row: "pd.Series", raw_row_id: int, batch_id: int) -> Trade:
     fee = calc_fee(side, market, amount)
 
     return Trade(
+        account_id=account_id,
         trade_date=td,
         seq=0,
         ts_code=ts_code,

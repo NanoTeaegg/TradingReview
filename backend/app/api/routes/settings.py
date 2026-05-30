@@ -1,31 +1,20 @@
-from typing import Optional
-
-import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_session
-from app.models.setting import AppSetting
+from app.services.llm import (
+    LLMConfig,
+    get_llm_config,
+    mask_api_key,
+    ping_llm,
+    save_llm_config,
+    set_setting,
+    OLLAMA_BASE_URL_KEY,
+    OLLAMA_MODEL_KEY,
+)
 
 router = APIRouter(tags=["settings"])
-
-OLLAMA_BASE_URL_KEY = "ollama_base_url"
-OLLAMA_MODEL_KEY = "ollama_model"
-
-
-def _get_setting(db: Session, key: str, default: str = "") -> str:
-    row = db.query(AppSetting).filter(AppSetting.key == key).first()
-    return row.value if row else default
-
-
-def _set_setting(db: Session, key: str, value: str) -> None:
-    row = db.query(AppSetting).filter(AppSetting.key == key).first()
-    if row:
-        row.value = value
-    else:
-        db.add(AppSetting(key=key, value=value))
-    db.commit()
 
 
 class OllamaSettings(BaseModel):
@@ -33,32 +22,70 @@ class OllamaSettings(BaseModel):
     model: str
 
 
+class LLMSettings(BaseModel):
+    provider: str
+    base_url: str
+    model: str
+    api_key: str | None = None
+
+
+def _serialize_llm(config: LLMConfig) -> dict:
+    return {
+        "provider": config.provider,
+        "base_url": config.base_url,
+        "model": config.model,
+        "api_key_masked": mask_api_key(config.api_key),
+        "has_api_key": bool(config.api_key),
+    }
+
+
+@router.get("/settings/llm")
+def get_llm_settings(db: Session = Depends(get_session)):
+    return _serialize_llm(get_llm_config(db))
+
+
+@router.put("/settings/llm")
+def update_llm_settings(body: LLMSettings, db: Session = Depends(get_session)):
+    if body.provider not in {"ollama", "openai_compatible"}:
+        raise HTTPException(status_code=400, detail="provider must be ollama or openai_compatible")
+    if not body.base_url.strip():
+        raise HTTPException(status_code=400, detail="base_url is required")
+    if not body.model.strip():
+        raise HTTPException(status_code=400, detail="model is required")
+
+    old = get_llm_config(db)
+    config = LLMConfig(
+        provider=body.provider,
+        base_url=body.base_url.strip(),
+        model=body.model.strip(),
+        api_key=body.api_key if body.api_key is not None else old.api_key,
+    )
+    save_llm_config(db, config)
+    return _serialize_llm(get_llm_config(db))
+
+
+@router.post("/settings/llm/ping")
+async def ping_llm_settings(db: Session = Depends(get_session)):
+    return await ping_llm(db)
+
+
 @router.get("/settings/ollama")
 def get_ollama_settings(db: Session = Depends(get_session)):
-    from app.core.config import settings as app_settings
+    config = get_llm_config(db)
     return {
-        "base_url": _get_setting(db, OLLAMA_BASE_URL_KEY, app_settings.OLLAMA_BASE_URL),
-        "model": _get_setting(db, OLLAMA_MODEL_KEY, app_settings.OLLAMA_MODEL),
+        "base_url": config.base_url,
+        "model": config.model,
     }
 
 
 @router.put("/settings/ollama")
 def update_ollama_settings(body: OllamaSettings, db: Session = Depends(get_session)):
-    _set_setting(db, OLLAMA_BASE_URL_KEY, body.base_url)
-    _set_setting(db, OLLAMA_MODEL_KEY, body.model)
+    set_setting(db, OLLAMA_BASE_URL_KEY, body.base_url)
+    set_setting(db, OLLAMA_MODEL_KEY, body.model)
+    save_llm_config(db, LLMConfig(provider="ollama", base_url=body.base_url, model=body.model))
     return {"base_url": body.base_url, "model": body.model}
 
 
 @router.post("/settings/ollama/ping")
 async def ping_ollama(db: Session = Depends(get_session)):
-    from app.core.config import settings as app_settings
-    base_url = _get_setting(db, OLLAMA_BASE_URL_KEY, app_settings.OLLAMA_BASE_URL)
-    try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            resp = await client.get(f"{base_url}/api/tags")
-            resp.raise_for_status()
-            data = resp.json()
-            models = [m.get("name") for m in data.get("models", [])]
-            return {"ok": True, "models": models, "base_url": base_url}
-    except Exception as e:
-        return {"ok": False, "error": str(e), "base_url": base_url}
+    return await ping_llm(db)

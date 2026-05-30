@@ -1,35 +1,88 @@
-import { useState, useEffect } from 'react'
-import { Check, X, Plus, Pencil, Trash2, Loader2, ChevronDown, ChevronUp, Database, RefreshCw } from 'lucide-react'
+import { useState, useEffect, useMemo } from 'react'
+import { Check, X, Plus, Pencil, Trash2, Loader2, ChevronDown, ChevronUp, Database, RefreshCw, Eye, EyeOff, KeyRound, ListRestart } from 'lucide-react'
 import {
   useTags, useCreateTag, useUpdateTag, useDeleteTag,
-  useOllamaSettings, useSaveOllamaSettings, usePingOllama,
+  useLLMSettings, useSaveLLMSettings, usePingLLM,
   useCashFlows, useCreateCashFlow, useDeleteCashFlow, n,
   useFullHistoryStatus, useStartFullHistory, useCancelFullHistory, useSyncLatestMarket,
+  useAccounts, useCreateAccount, useDeleteAccount,
+  invalidateAccountScopedQueries,
+  type LLMProvider,
 } from '@/lib/queries'
+import { useCurrentAccountId, useSetCurrentAccountId } from '@/lib/account'
+import { useQueryClient } from '@tanstack/react-query'
 import { formatAmount, formatTradeDate } from '@/lib/format'
 
 type ConnStatus = 'idle' | 'testing' | 'ok' | 'fail'
+type ModelVendorId = 'ollama' | 'openai' | 'deepseek' | 'moonshot' | 'dashscope' | 'zhipu' | 'openrouter' | 'custom'
+
+interface ModelVendor {
+  id: ModelVendorId
+  name: string
+  provider: LLMProvider
+  baseUrl: string
+  defaultModel: string
+  needsKey: boolean
+}
+
+const MODEL_VENDORS: ModelVendor[] = [
+  { id: 'ollama', name: 'Ollama 本地', provider: 'ollama', baseUrl: 'http://localhost:11434', defaultModel: 'qwen2.5:14b', needsKey: false },
+  { id: 'openai', name: 'OpenAI', provider: 'openai_compatible', baseUrl: 'https://api.openai.com/v1', defaultModel: 'gpt-4o-mini', needsKey: true },
+  { id: 'deepseek', name: 'DeepSeek', provider: 'openai_compatible', baseUrl: 'https://api.deepseek.com/v1', defaultModel: 'deepseek-chat', needsKey: true },
+  { id: 'moonshot', name: 'Moonshot / Kimi', provider: 'openai_compatible', baseUrl: 'https://api.moonshot.ai/v1', defaultModel: 'kimi-k2-0905-preview', needsKey: true },
+  { id: 'dashscope', name: '通义千问 DashScope', provider: 'openai_compatible', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', defaultModel: 'qwen-plus', needsKey: true },
+  { id: 'zhipu', name: '智谱 GLM', provider: 'openai_compatible', baseUrl: 'https://open.bigmodel.cn/api/paas/v4', defaultModel: 'glm-4.5', needsKey: true },
+  { id: 'openrouter', name: 'OpenRouter', provider: 'openai_compatible', baseUrl: 'https://openrouter.ai/api/v1', defaultModel: 'openai/gpt-4o-mini', needsKey: true },
+  { id: 'custom', name: '自定义 OpenAI 兼容', provider: 'openai_compatible', baseUrl: '', defaultModel: '', needsKey: true },
+]
+
+function vendorFromSettings(provider: LLMProvider, baseUrl: string): ModelVendorId {
+  if (provider === 'ollama') return 'ollama'
+  const normalized = baseUrl.replace(/\/$/, '')
+  return MODEL_VENDORS.find(v => v.id !== 'custom' && v.baseUrl.replace(/\/$/, '') === normalized)?.id ?? 'custom'
+}
 
 export default function Settings() {
-  const { data: ollamaSettings } = useOllamaSettings()
-  const saveOllamaSettings = useSaveOllamaSettings()
-  const pingOllama = usePingOllama()
+  const queryClient = useQueryClient()
+  const currentAccountId = useCurrentAccountId()
+  const setCurrentAccountId = useSetCurrentAccountId()
+  const { data: accounts = [] } = useAccounts()
+  const createAccount = useCreateAccount()
+  const deleteAccount = useDeleteAccount()
+  const { data: llmSettings } = useLLMSettings()
+  const saveLLMSettings = useSaveLLMSettings()
+  const pingLLM = usePingLLM()
 
-  const [ollamaUrl, setOllamaUrl] = useState('http://localhost:11434')
+  const [modelVendor, setModelVendor] = useState<ModelVendorId>('ollama')
+  const [apiUrl, setApiUrl] = useState('http://localhost:11434')
+  const [apiKey, setApiKey] = useState('')
+  const [showApiKey, setShowApiKey] = useState(false)
   const [modelName, setModelName] = useState('qwen2.5:14b')
+  const [availableModels, setAvailableModels] = useState<string[]>([])
   const [connStatus, setConnStatus] = useState<ConnStatus>('idle')
   const [pingMsg, setPingMsg] = useState('')
   const [settingsDirty, setSettingsDirty] = useState(false)
   const [cashOpen, setCashOpen] = useState(false)
   const [cashAmount, setCashAmount] = useState('')
   const [cashError, setCashError] = useState('')
+  const [accountName, setAccountName] = useState('')
+  const [accountMsg, setAccountMsg] = useState<{ ok: boolean; text: string } | null>(null)
+  const [deleteAccountId, setDeleteAccountId] = useState<number | null>(null)
+  const [deleteAccountName, setDeleteAccountName] = useState('')
 
   useEffect(() => {
-    if (ollamaSettings) {
-      setOllamaUrl(ollamaSettings.base_url)
-      setModelName(ollamaSettings.model)
+    if (llmSettings) {
+      setModelVendor(vendorFromSettings(llmSettings.provider, llmSettings.base_url))
+      setApiUrl(llmSettings.base_url)
+      setModelName(llmSettings.model)
+      setApiKey('')
     }
-  }, [ollamaSettings])
+  }, [llmSettings])
+
+  const selectedVendor = useMemo(
+    () => MODEL_VENDORS.find(v => v.id === modelVendor) ?? MODEL_VENDORS[0],
+    [modelVendor],
+  )
 
   const { data: tags = [] } = useTags()
   const createTag = useCreateTag()
@@ -65,6 +118,43 @@ export default function Settings() {
     })
   }
 
+  function switchAccount(accountId: number) {
+    setCurrentAccountId(accountId)
+    invalidateAccountScopedQueries(queryClient)
+    setAccountMsg({ ok: true, text: '已切换当前账本' })
+  }
+
+  async function addAccount() {
+    const name = accountName.trim()
+    if (!name) {
+      setAccountMsg({ ok: false, text: '请输入账本名' })
+      return
+    }
+    try {
+      const account = await createAccount.mutateAsync({ name })
+      setCurrentAccountId(account.id)
+      invalidateAccountScopedQueries(queryClient)
+      setAccountName('')
+      setAccountMsg({ ok: true, text: '已新建并切换到账本' })
+    } catch (error) {
+      setAccountMsg({ ok: false, text: error instanceof Error ? error.message : '新建账本失败' })
+    }
+  }
+
+  async function confirmDeleteAccount(id: number) {
+    try {
+      await deleteAccount.mutateAsync({ id, name: deleteAccountName })
+      setDeleteAccountId(null)
+      setDeleteAccountName('')
+      setAccountMsg({ ok: true, text: '账本已删除' })
+    } catch (error) {
+      setAccountMsg({ ok: false, text: error instanceof Error ? error.message : '删除账本失败' })
+    }
+  }
+
+  const accountLabel = (account: { name: string; is_default: boolean }) =>
+    account.is_default ? '模拟数据' : account.name
+
   const [newTagName, setNewTagName] = useState('')
   const [editingTagId, setEditingTagId] = useState<number | null>(null)
   const [editingTagValue, setEditingTagValue] = useState('')
@@ -73,22 +163,49 @@ export default function Settings() {
   async function testConnection() {
     setConnStatus('testing')
     setPingMsg('')
-    const result = await pingOllama.mutateAsync()
+    if (settingsDirty) {
+      await saveLLM()
+    }
+    const result = await pingLLM.mutateAsync()
     if (result.ok) {
       setConnStatus('ok')
-      setPingMsg(`连接成功，可用模型：${result.models?.join(', ') || '无'}`)
+      const models = result.models ?? []
+      setAvailableModels(models)
+      setPingMsg(models.length > 0 ? `连接成功，已获取 ${models.length} 个模型` : '连接成功，但未返回模型列表')
     } else {
       setConnStatus('fail')
       setPingMsg(result.error || '连接失败')
     }
   }
 
-  async function saveOllama() {
-    await saveOllamaSettings.mutateAsync({ base_url: ollamaUrl, model: modelName })
+  async function saveLLM() {
+    await saveLLMSettings.mutateAsync({
+      provider: selectedVendor.provider,
+      base_url: apiUrl,
+      model: modelName,
+      api_key: apiKey || undefined,
+    })
     setSettingsDirty(false)
   }
 
-  function handleOllamaChange() {
+  function handleLLMChange() {
+    setSettingsDirty(true)
+    setConnStatus('idle')
+    setPingMsg('')
+  }
+
+  function handleLLMConnectionChange() {
+    setAvailableModels([])
+    handleLLMChange()
+  }
+
+  function handleVendorChange(vendorId: ModelVendorId) {
+    const next = MODEL_VENDORS.find(v => v.id === vendorId) ?? MODEL_VENDORS[0]
+    setModelVendor(next.id)
+    setApiUrl(next.baseUrl)
+    setModelName(next.defaultModel)
+    setApiKey('')
+    setAvailableModels([])
     setSettingsDirty(true)
     setConnStatus('idle')
     setPingMsg('')
@@ -124,18 +241,18 @@ export default function Settings() {
 
   const connStatusEl = (() => {
     if (connStatus === 'testing') return (
-      <span className="flex items-center gap-1.5 text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
-        <Loader2 size={12} className="animate-spin" /> 测试中...
+      <span className="flex min-w-0 items-start gap-1.5 text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
+        <Loader2 size={12} className="mt-0.5 shrink-0 animate-spin" /> <span className="min-w-0 break-words">测试中...</span>
       </span>
     )
     if (connStatus === 'ok') return (
-      <span className="flex items-center gap-1.5 text-xs" style={{ color: 'var(--color-success)' }}>
-        <Check size={12} /> {pingMsg}
+      <span className="flex min-w-0 items-start gap-1.5 text-xs" style={{ color: 'var(--color-success)' }}>
+        <Check size={12} className="mt-0.5 shrink-0" /> <span className="min-w-0 break-words">{pingMsg}</span>
       </span>
     )
     if (connStatus === 'fail') return (
-      <span className="flex items-center gap-1.5 text-xs" style={{ color: 'var(--color-danger)' }}>
-        <X size={12} /> {pingMsg || '连接失败'}
+      <span className="flex min-w-0 items-start gap-1.5 text-xs" style={{ color: 'var(--color-danger)' }}>
+        <X size={12} className="mt-0.5 shrink-0" /> <span className="min-w-0 break-words">{pingMsg || '连接失败'}</span>
       </span>
     )
     return null
@@ -149,6 +266,93 @@ export default function Settings() {
       >
         设置
       </h1>
+
+      {/* Account management */}
+      <section>
+        <h2 className="text-lg font-semibold mb-4" style={{ color: 'var(--color-text-primary)' }}>账本管理</h2>
+        <div className="rounded-lg overflow-hidden"
+          style={{ border: '1px solid var(--color-border-subtle)', background: 'var(--color-bg-surface)' }}>
+          <div className="flex items-center gap-3 px-4 py-3" style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
+            <input
+              className="flex-1 h-8 px-3 rounded text-sm outline-none"
+              style={{ border: '1px solid var(--color-border-default)', color: 'var(--color-text-primary)' }}
+              placeholder="新账本名称"
+              value={accountName}
+              onChange={e => { setAccountName(e.target.value); setAccountMsg(null) }}
+              onKeyDown={e => e.key === 'Enter' && addAccount()}
+              onFocus={e => (e.currentTarget.style.borderColor = 'var(--color-focus-ring)')}
+              onBlur={e => (e.currentTarget.style.borderColor = 'var(--color-border-default)')}
+            />
+            <button
+              className="flex items-center gap-1 px-3 h-8 rounded text-xs font-medium transition-colors duration-[120ms] disabled:opacity-45"
+              style={{ background: 'var(--color-primary)', color: 'var(--color-text-on-brand)' }}
+              onClick={addAccount}
+              disabled={createAccount.isPending}
+            >
+              <Plus size={12} /> 新建
+            </button>
+          </div>
+
+          {accounts.map(account => {
+            const isCurrent = account.id === currentAccountId
+            const isDeleting = deleteAccountId === account.id
+            return (
+              <div key={account.id}
+                className="flex items-center gap-3 px-4 py-2.5"
+                style={{
+                  borderBottom: '1px solid var(--color-border-subtle)',
+                  background: isCurrent ? 'var(--color-bg-surface-selected)' : 'transparent',
+                }}>
+                <button className="min-w-0 flex-1 text-left text-sm truncate"
+                  style={{ color: 'var(--color-text-primary)' }}
+                  onClick={() => switchAccount(account.id)}>
+                  {accountLabel(account)}
+                </button>
+                {isCurrent && (
+                  <span className="text-xs" style={{ color: 'var(--color-primary)' }}>当前</span>
+                )}
+                {isDeleting ? (
+                  <div className="flex min-w-0 flex-1 items-center gap-2">
+                    <span className="min-w-0 flex-1 text-xs" style={{ color: 'var(--color-danger)' }}>
+                      删除后该账本下成交、出入金、意图、复盘、规则等数据会同步删除。请输入完整账本名确认。
+                    </span>
+                    <input
+                      className="h-7 w-32 px-2 rounded text-xs outline-none"
+                      style={{ border: '1px solid var(--color-border-default)', color: 'var(--color-text-primary)' }}
+                      placeholder={accountLabel(account)}
+                      value={deleteAccountName}
+                      onChange={e => setDeleteAccountName(e.target.value)}
+                    />
+                    <button className="h-7 px-2 rounded text-xs disabled:opacity-45"
+                      style={{ background: 'var(--color-danger)', color: 'white' }}
+                      disabled={accounts.length <= 1 || deleteAccount.isPending}
+                      onClick={() => confirmDeleteAccount(account.id)}>
+                      删除
+                    </button>
+                    <button className="h-7 px-2 rounded text-xs" style={{ color: 'var(--color-text-tertiary)' }}
+                      onClick={() => { setDeleteAccountId(null); setDeleteAccountName('') }}>
+                      取消
+                    </button>
+                  </div>
+                ) : (
+                  <button className="p-1 rounded transition-colors duration-[120ms] disabled:opacity-45"
+                    style={{ color: 'var(--color-text-tertiary)' }}
+                    disabled={accounts.length <= 1 || account.is_default}
+                    title={account.is_default ? '默认模拟数据账本不可删除' : undefined}
+                    onClick={() => { setDeleteAccountId(account.id); setDeleteAccountName('') }}>
+                    <Trash2 size={14} strokeWidth={1.5} />
+                  </button>
+                )}
+              </div>
+            )
+          })}
+        </div>
+        {accountMsg && (
+          <p className="mt-2 text-xs" style={{ color: accountMsg.ok ? 'var(--color-success)' : 'var(--color-danger)' }}>
+            {accountMsg.text}
+          </p>
+        )}
+      </section>
 
       {/* Cash flows */}
       <section>
@@ -341,47 +545,134 @@ export default function Settings() {
         </div>
       </section>
 
-      {/* Ollama config */}
+      {/* LLM config */}
       <section>
-        <h2 className="text-lg font-semibold mb-4" style={{ color: 'var(--color-text-primary)' }}>Ollama 配置</h2>
+        <h2 className="text-lg font-semibold mb-4" style={{ color: 'var(--color-text-primary)' }}>大模型配置</h2>
         <div className="rounded-lg p-5 flex flex-col gap-4"
           style={{ background: 'var(--color-bg-surface)', border: '1px solid var(--color-border-subtle)' }}>
           <div className="flex flex-col gap-1.5">
             <label className="text-xs font-medium" style={{ color: 'var(--color-text-secondary)' }}>
-              Ollama Base URL
+              模型厂商
             </label>
-            <input
+            <select
               className="h-9 px-3 rounded-md text-sm outline-none"
-              style={{ border: '1px solid var(--color-border-default)', color: 'var(--color-text-primary)' }}
-              value={ollamaUrl}
-              onChange={e => { setOllamaUrl(e.target.value); handleOllamaChange() }}
+              style={{ border: '1px solid var(--color-border-default)', color: 'var(--color-text-primary)', background: 'var(--color-bg-surface)' }}
+              value={modelVendor}
+              onChange={e => handleVendorChange(e.target.value as ModelVendorId)}
               onFocus={e => (e.currentTarget.style.borderColor = 'var(--color-focus-ring)')}
               onBlur={e => (e.currentTarget.style.borderColor = 'var(--color-border-default)')}
-            />
+            >
+              {MODEL_VENDORS.map(vendor => (
+                <option key={vendor.id} value={vendor.id}>{vendor.name}</option>
+              ))}
+            </select>
           </div>
           <div className="flex flex-col gap-1.5">
             <label className="text-xs font-medium" style={{ color: 'var(--color-text-secondary)' }}>
-              模型名称
+              API 地址
             </label>
             <input
               className="h-9 px-3 rounded-md text-sm outline-none"
               style={{ border: '1px solid var(--color-border-default)', color: 'var(--color-text-primary)' }}
-              value={modelName}
-              onChange={e => { setModelName(e.target.value); handleOllamaChange() }}
+              value={apiUrl}
+              onChange={e => { setApiUrl(e.target.value); handleLLMConnectionChange() }}
               onFocus={e => (e.currentTarget.style.borderColor = 'var(--color-focus-ring)')}
               onBlur={e => (e.currentTarget.style.borderColor = 'var(--color-border-default)')}
+              placeholder={selectedVendor.provider === 'ollama' ? 'http://localhost:11434' : 'https://api.example.com/v1'}
             />
+            <span className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
+              {selectedVendor.provider === 'ollama'
+                ? 'Ollama 使用本地地址，通过 /api/tags 获取模型。'
+                : '填写 OpenAI 兼容 Base URL，系统会拼接 /models 与 /chat/completions。'}
+            </span>
           </div>
-          <div className="flex items-center gap-4">
+          {selectedVendor.needsKey && (
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-medium" style={{ color: 'var(--color-text-secondary)' }}>
+                API 密钥
+              </label>
+              <div className="flex items-center gap-2">
+                <div className="relative min-w-0 flex-1">
+                  <KeyRound size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--color-text-tertiary)' }} />
+                  <input
+                    className="w-full h-9 pl-9 pr-10 rounded-md text-sm outline-none"
+                    style={{ border: '1px solid var(--color-border-default)', color: 'var(--color-text-primary)' }}
+                    type={showApiKey ? 'text' : 'password'}
+                    value={apiKey}
+                    onChange={e => { setApiKey(e.target.value); handleLLMConnectionChange() }}
+                    onFocus={e => (e.currentTarget.style.borderColor = 'var(--color-focus-ring)')}
+                    onBlur={e => (e.currentTarget.style.borderColor = 'var(--color-border-default)')}
+                    placeholder={llmSettings?.has_api_key ? `已保存：${llmSettings.api_key_masked}` : '粘贴 API Key'}
+                  />
+                  <button
+                    type="button"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded transition-colors duration-[120ms]"
+                    style={{ color: 'var(--color-text-tertiary)' }}
+                    onClick={() => setShowApiKey(v => !v)}
+                    aria-label={showApiKey ? '隐藏 API 密钥' : '显示 API 密钥'}
+                  >
+                    {showApiKey ? <EyeOff size={14} /> : <Eye size={14} />}
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  className="h-9 w-20 shrink-0 rounded-md text-sm transition-colors duration-[120ms] disabled:opacity-45"
+                  style={{ background: 'var(--color-bg-surface-selected)', color: 'var(--color-text-primary)', border: '1px solid var(--color-border-default)' }}
+                  onClick={testConnection}
+                  disabled={connStatus === 'testing' || saveLLMSettings.isPending}
+                >
+                  {connStatus === 'testing' ? '检测中' : '检测'}
+                </button>
+              </div>
+              {llmSettings?.has_api_key && !apiKey && (
+                <span className="inline-flex items-center gap-1 text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
+                  <EyeOff size={12} /> 已保存密钥
+                </span>
+              )}
+            </div>
+          )}
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs font-medium" style={{ color: 'var(--color-text-secondary)' }}>
+              模型
+            </label>
+            {availableModels.length > 0 ? (
+              <select
+                className="h-9 px-3 rounded-md text-sm outline-none"
+                style={{ border: '1px solid var(--color-border-default)', color: 'var(--color-text-primary)', background: 'var(--color-bg-surface)' }}
+                value={modelName}
+                onChange={e => { setModelName(e.target.value); handleLLMChange() }}
+                onFocus={e => (e.currentTarget.style.borderColor = 'var(--color-focus-ring)')}
+                onBlur={e => (e.currentTarget.style.borderColor = 'var(--color-border-default)')}
+              >
+                {availableModels.map(model => (
+                  <option key={model} value={model}>{model}</option>
+                ))}
+              </select>
+            ) : (
+              <input
+                className="h-9 px-3 rounded-md text-sm outline-none"
+                style={{ border: '1px solid var(--color-border-default)', color: 'var(--color-text-primary)' }}
+                value={modelName}
+                onChange={e => { setModelName(e.target.value); handleLLMChange() }}
+                onFocus={e => (e.currentTarget.style.borderColor = 'var(--color-focus-ring)')}
+                onBlur={e => (e.currentTarget.style.borderColor = 'var(--color-border-default)')}
+                placeholder={selectedVendor.defaultModel || '输入模型 ID'}
+              />
+            )}
+          </div>
+          <div className="grid grid-cols-[112px_minmax(0,1fr)] items-start gap-3">
             <button
-              className="px-4 h-9 rounded-md text-sm transition-colors duration-[120ms] disabled:opacity-45"
+              className="inline-flex h-9 w-28 items-center justify-center gap-1.5 rounded-md text-sm leading-none transition-colors duration-[120ms] disabled:opacity-45"
               style={{ background: 'var(--color-bg-surface-selected)', color: 'var(--color-text-primary)', border: '1px solid var(--color-border-default)' }}
               onClick={testConnection}
-              disabled={connStatus === 'testing'}
+              disabled={connStatus === 'testing' || saveLLMSettings.isPending}
             >
-              {connStatus === 'testing' ? '测试中...' : '测试连接'}
+              {connStatus === 'testing' ? <Loader2 size={14} className="animate-spin" /> : <ListRestart size={14} />}
+              <span>{connStatus === 'testing' ? '获取中' : '获取模型'}</span>
             </button>
-            {connStatusEl}
+            <div className="min-w-0 pt-2">
+              {connStatusEl}
+            </div>
           </div>
           <div className="flex items-center justify-end">
             <button
@@ -390,15 +681,14 @@ export default function Settings() {
                 background: settingsDirty ? 'var(--color-primary)' : 'var(--color-bg-surface-selected)',
                 color: settingsDirty ? 'var(--color-text-on-brand)' : 'var(--color-text-secondary)',
               }}
-              disabled={!settingsDirty || saveOllamaSettings.isPending}
-              onClick={saveOllama}
+              disabled={!settingsDirty || saveLLMSettings.isPending}
+              onClick={saveLLM}
             >
-              {saveOllamaSettings.isPending ? '保存中...' : '保存'}
+              {saveLLMSettings.isPending ? '保存中...' : '保存'}
             </button>
           </div>
         </div>
       </section>
-
       {/* Tag management */}
       <section>
         <h2 className="text-lg font-semibold mb-4" style={{ color: 'var(--color-text-primary)' }}>标签管理</h2>

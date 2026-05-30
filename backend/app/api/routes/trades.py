@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_session
+from app.api.deps import get_current_account_id, get_session
 from app.models.trade import Trade
 from app.models.intent import TradeIntent
 
@@ -20,8 +20,11 @@ def list_trades(
     start: Optional[date] = Query(None),
     end: Optional[date] = Query(None),
     db: Session = Depends(get_session),
+    account_id: int = Depends(get_current_account_id),
 ):
-    q = db.query(Trade).order_by(Trade.trade_date.desc(), Trade.seq.desc(), Trade.id.desc())
+    q = db.query(Trade).filter(Trade.account_id == account_id).order_by(
+        Trade.trade_date.desc(), Trade.seq.desc(), Trade.id.desc()
+    )
     if stock:
         q = q.filter(or_(Trade.stock_code.like(f"{stock}%"), Trade.stock_name.like(f"%{stock}%")))
     if side:
@@ -34,7 +37,10 @@ def list_trades(
     trades = q.all()
 
     intent_map: dict[int, TradeIntent] = {}
-    for intent in db.query(TradeIntent).filter(TradeIntent.trade_id.isnot(None)).all():
+    for intent in db.query(TradeIntent).filter(
+        TradeIntent.account_id == account_id,
+        TradeIntent.trade_id.isnot(None),
+    ).all():
         if intent.trade_id:
             intent_map[intent.trade_id] = intent
 

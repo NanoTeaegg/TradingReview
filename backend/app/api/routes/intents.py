@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_session
+from app.api.deps import get_current_account_id, get_session
 from app.models.intent import TradeIntent
 from app.models.trade import Trade
 from app.services.pnl import run_fifo, _load_trades
@@ -27,14 +27,14 @@ class IntentUpdate(BaseModel):
     confidence: Optional[int] = None
 
 
-def _fmt(i: TradeIntent, db: Session) -> dict:
+def _fmt(i: TradeIntent, db: Session, account_id: int) -> dict:
     stock_name = ""
     pnl_realized = None
     pnl_float = None
     pnl_float_rate = None
 
     if i.trade_id:
-        trade = db.query(Trade).filter(Trade.id == i.trade_id).first()
+        trade = db.query(Trade).filter(Trade.id == i.trade_id, Trade.account_id == account_id).first()
         if trade:
             stock_name = trade.stock_name
 
@@ -54,14 +54,25 @@ def _fmt(i: TradeIntent, db: Session) -> dict:
 
 
 @router.get("/intents")
-def list_intents(db: Session = Depends(get_session)):
-    intents = db.query(TradeIntent).order_by(TradeIntent.created_at.desc()).all()
-    return [_fmt(i, db) for i in intents]
+def list_intents(db: Session = Depends(get_session), account_id: int = Depends(get_current_account_id)):
+    intents = db.query(TradeIntent).filter(
+        TradeIntent.account_id == account_id
+    ).order_by(TradeIntent.created_at.desc()).all()
+    return [_fmt(i, db, account_id) for i in intents]
 
 
 @router.post("/intents")
-def create_intent(body: IntentCreate, db: Session = Depends(get_session)):
+def create_intent(
+    body: IntentCreate,
+    db: Session = Depends(get_session),
+    account_id: int = Depends(get_current_account_id),
+):
+    if body.trade_id:
+        trade = db.query(Trade).filter(Trade.id == body.trade_id, Trade.account_id == account_id).first()
+        if not trade:
+            raise HTTPException(status_code=404, detail="Trade not found")
     intent = TradeIntent(
+        account_id=account_id,
         trade_id=body.trade_id,
         stock_code=body.stock_code,
         tags=json.dumps(body.tags, ensure_ascii=False),
@@ -71,20 +82,35 @@ def create_intent(body: IntentCreate, db: Session = Depends(get_session)):
     db.add(intent)
     db.commit()
     db.refresh(intent)
-    return _fmt(intent, db)
+    return _fmt(intent, db, account_id)
 
 
 @router.get("/intents/{intent_id}")
-def get_intent(intent_id: int, db: Session = Depends(get_session)):
-    intent = db.query(TradeIntent).filter(TradeIntent.id == intent_id).first()
+def get_intent(
+    intent_id: int,
+    db: Session = Depends(get_session),
+    account_id: int = Depends(get_current_account_id),
+):
+    intent = db.query(TradeIntent).filter(
+        TradeIntent.id == intent_id,
+        TradeIntent.account_id == account_id,
+    ).first()
     if not intent:
         raise HTTPException(status_code=404, detail="Intent not found")
-    return _fmt(intent, db)
+    return _fmt(intent, db, account_id)
 
 
 @router.put("/intents/{intent_id}")
-def update_intent(intent_id: int, body: IntentUpdate, db: Session = Depends(get_session)):
-    intent = db.query(TradeIntent).filter(TradeIntent.id == intent_id).first()
+def update_intent(
+    intent_id: int,
+    body: IntentUpdate,
+    db: Session = Depends(get_session),
+    account_id: int = Depends(get_current_account_id),
+):
+    intent = db.query(TradeIntent).filter(
+        TradeIntent.id == intent_id,
+        TradeIntent.account_id == account_id,
+    ).first()
     if not intent:
         raise HTTPException(status_code=404, detail="Intent not found")
     if body.tags is not None:
@@ -95,12 +121,19 @@ def update_intent(intent_id: int, body: IntentUpdate, db: Session = Depends(get_
         intent.confidence = body.confidence
     db.commit()
     db.refresh(intent)
-    return _fmt(intent, db)
+    return _fmt(intent, db, account_id)
 
 
 @router.delete("/intents/{intent_id}")
-def delete_intent(intent_id: int, db: Session = Depends(get_session)):
-    intent = db.query(TradeIntent).filter(TradeIntent.id == intent_id).first()
+def delete_intent(
+    intent_id: int,
+    db: Session = Depends(get_session),
+    account_id: int = Depends(get_current_account_id),
+):
+    intent = db.query(TradeIntent).filter(
+        TradeIntent.id == intent_id,
+        TradeIntent.account_id == account_id,
+    ).first()
     if not intent:
         raise HTTPException(status_code=404, detail="Intent not found")
     db.delete(intent)
@@ -109,20 +142,30 @@ def delete_intent(intent_id: int, db: Session = Depends(get_session)):
 
 
 @router.get("/intents/{intent_id}/detail")
-def get_intent_detail(intent_id: int, db: Session = Depends(get_session)):
-    intent = db.query(TradeIntent).filter(TradeIntent.id == intent_id).first()
+def get_intent_detail(
+    intent_id: int,
+    db: Session = Depends(get_session),
+    account_id: int = Depends(get_current_account_id),
+):
+    intent = db.query(TradeIntent).filter(
+        TradeIntent.id == intent_id,
+        TradeIntent.account_id == account_id,
+    ).first()
     if not intent:
         raise HTTPException(status_code=404, detail="Intent not found")
 
     related_trades = []
     if intent.stock_code:
-        related_trades = db.query(Trade).filter(Trade.stock_code == intent.stock_code).order_by(Trade.trade_date).all()
+        related_trades = db.query(Trade).filter(
+            Trade.account_id == account_id,
+            Trade.stock_code == intent.stock_code,
+        ).order_by(Trade.trade_date).all()
     elif intent.trade_id:
-        t = db.query(Trade).filter(Trade.id == intent.trade_id).first()
+        t = db.query(Trade).filter(Trade.id == intent.trade_id, Trade.account_id == account_id).first()
         if t:
             related_trades = [t]
 
-    all_trades = _load_trades(db)
+    all_trades = _load_trades(db, account_id=account_id)
     lots, round_trips = run_fifo(all_trades)
 
     code = intent.stock_code or (related_trades[0].stock_code if related_trades else None)
@@ -149,7 +192,7 @@ def get_intent_detail(intent_id: int, db: Session = Depends(get_session)):
                     float_pnl = str(((latest_price - avg_cost) * total_qty).quantize(Decimal("0.01")))
 
     return {
-        **_fmt(intent, db),
+        **_fmt(intent, db, account_id),
         "related_trades": [
             {
                 "id": t.id,
