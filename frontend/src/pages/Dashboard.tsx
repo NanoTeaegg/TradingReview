@@ -703,7 +703,7 @@ export default function Dashboard() {
                         <button
                           className="p-1 rounded transition-colors duration-[120ms]"
                           title="AI复盘"
-                          onClick={() => navigate(`/reviews/trade/${t.id}`)}
+                          onClick={() => navigate(`/intents/stock/${t.stock_code}`)}
                           style={{ color: 'var(--color-text-tertiary)' }}
                           onMouseEnter={e => (e.currentTarget.style.color = 'var(--color-primary)')}
                           onMouseLeave={e => (e.currentTarget.style.color = 'var(--color-text-tertiary)')}

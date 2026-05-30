@@ -295,7 +295,7 @@ export default function TodayHoldings() {
                       <button
                         className="flex items-center gap-1 px-2 py-1 rounded text-xs mx-auto transition-colors duration-[120ms]"
                         style={{ background: 'var(--color-primary-subtle)', color: 'var(--color-primary)' }}
-                        onClick={() => navigate(`/reviews/stock/${h.stock_code}`)}
+                        onClick={() => navigate(`/intents/stock/${h.stock_code}`)}
                       >
                         <Bot size={12} />
                         AI复盘
