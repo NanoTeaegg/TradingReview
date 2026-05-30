@@ -32,10 +32,10 @@
   --color-text-on-brand: #faf9f5;
 
   /* Brand / Primary */
-  --color-primary: #c96442;
+  --color-primary: #c96542;
   --color-primary-hover: #b85538;
   --color-primary-active: #a84828;
-  --color-primary-subtle: rgba(201, 100, 66, 0.08);
+  --color-primary-subtle: rgba(201, 101, 66, 0.08);
   --color-focus-ring: #3898ec;
 
   /* Semantic — financial */

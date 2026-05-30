@@ -39,8 +39,7 @@ type UploadState =
 const navItems: { to: string; label: string; end?: boolean }[] = [
   { to: '/', label: '交易总览', end: true },
   { to: '/holdings', label: '当日持仓' },
-  { to: '/intents', label: '交易意图' },
-  { to: '/reviews', label: '复盘报告' },
+  { to: '/intents', label: '交易复盘' },
   { to: '/rules', label: '交易规则' },
 ]
 
@@ -183,9 +182,8 @@ export default function Topbar() {
             type="button"
             className={actionClass}
             style={{
-              color: 'var(--color-text-secondary)',
-              background: 'var(--color-bg-surface)',
-              border: '1px solid var(--color-border-subtle)',
+              color: '#ffffff',
+              background: 'var(--color-primary)',
             }}
             disabled={accountsLoading}
             onClick={() => setAccountOpen(open => !open)}
@@ -199,33 +197,38 @@ export default function Topbar() {
 
           {accountOpen && (
             <div
-              className="absolute right-0 top-[calc(100%+8px)] z-50 w-72 overflow-hidden rounded-lg"
+              className="absolute right-0 top-[calc(100%+8px)] z-50 min-w-[200px] overflow-hidden rounded-xl"
               style={{
                 background: 'var(--color-bg-surface)',
-                border: '1px solid var(--color-border-subtle)',
-                boxShadow: 'var(--shadow-sm)',
+                border: '1px solid var(--color-border-default)',
+                boxShadow: '0 8px 24px rgba(0,0,0,0.08), 0 2px 6px rgba(0,0,0,0.05)',
               }}
               role="menu"
             >
-              <div className="max-h-72 overflow-y-auto py-1">
-                {accounts.map(account => (
-                  <button
-                    key={account.id}
-                    type="button"
-                    className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm transition-colors duration-[120ms]"
-                    style={{
-                      color: 'var(--color-text-primary)',
-                      background: account.id === currentAccount?.id ? 'var(--color-bg-surface-selected)' : 'transparent',
-                    }}
-                    onClick={() => switchAccount(account)}
-                    role="menuitem"
-                  >
-                    <span className="flex h-4 w-4 items-center justify-center">
-                      {account.id === currentAccount?.id && <Check size={14} style={{ color: 'var(--color-primary)' }} />}
-                    </span>
-                    <span className="min-w-0 flex-1 truncate">{accountLabel(account)}</span>
-                  </button>
-                ))}
+              <div className="max-h-72 overflow-y-auto p-1.5">
+                {accounts.map(account => {
+                  const isSelected = account.id === currentAccount?.id
+                  return (
+                    <button
+                      key={account.id}
+                      type="button"
+                      className="group flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2.5 text-left text-[14px] transition-colors duration-[80ms]"
+                      style={{
+                        color: 'var(--color-text-primary)',
+                        background: 'transparent',
+                      }}
+                      onMouseEnter={e => (e.currentTarget.style.background = 'var(--color-bg-surface-hover)')}
+                      onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                      onClick={() => switchAccount(account)}
+                      role="menuitem"
+                    >
+                      <span className="min-w-0 flex-1 truncate">{accountLabel(account)}</span>
+                      <span className="flex h-4 w-4 shrink-0 items-center justify-center">
+                        {isSelected && <Check size={14} style={{ color: 'var(--color-text-primary)' }} />}
+                      </span>
+                    </button>
+                  )
+                })}
               </div>
             </div>
           )}
@@ -234,11 +237,16 @@ export default function Topbar() {
         {/* Upload button */}
         <button
           onClick={handleUploadClick}
-          className={actionClass}
-          style={{ color: 'var(--color-text-secondary)', background: 'var(--color-bg-surface)' }}
+          className={`${actionClass} group`}
+          style={{ color: 'var(--color-text-secondary)', background: 'transparent' }}
+          onMouseEnter={e => (e.currentTarget.style.color = 'var(--color-text-primary)')}
+          onMouseLeave={e => (e.currentTarget.style.color = 'var(--color-text-secondary)')}
         >
           <Upload size={16} strokeWidth={1.8} />
-          上传文件
+          <span className="relative">
+            <span className="font-semibold opacity-0 select-none" aria-hidden="true">上传文件</span>
+            <span className="absolute inset-0 font-medium group-hover:font-semibold">上传文件</span>
+          </span>
         </button>
         <input
           ref={fileInputRef}
@@ -251,11 +259,16 @@ export default function Topbar() {
         {/* Import history button */}
         <button
           onClick={() => setShowHistory(true)}
-          className={actionClass}
-          style={{ color: 'var(--color-text-secondary)', background: 'var(--color-bg-surface)' }}
+          className={`${actionClass} group`}
+          style={{ color: 'var(--color-text-secondary)', background: 'transparent' }}
+          onMouseEnter={e => (e.currentTarget.style.color = 'var(--color-text-primary)')}
+          onMouseLeave={e => (e.currentTarget.style.color = 'var(--color-text-secondary)')}
         >
           <History size={16} strokeWidth={1.8} />
-          导入历史
+          <span className="relative">
+            <span className="font-semibold opacity-0 select-none" aria-hidden="true">导入历史</span>
+            <span className="absolute inset-0 font-medium group-hover:font-semibold">导入历史</span>
+          </span>
         </button>
 
         {/* Settings */}

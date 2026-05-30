@@ -13,7 +13,7 @@ type TabKey = 'list' | 'stats'
 
 export default function Intents() {
   const navigate = useNavigate()
-  const [tab, setTab] = useState<TabKey>('list')
+  const [tab, setTab] = useState<TabKey>('stats')
   const [filterCode, setFilterCode] = useState('')
   const [statsRange, setStatsRange] = useState<'30d' | '90d' | 'all'>('all')
 
@@ -58,12 +58,12 @@ export default function Intents() {
         className="font-serif font-medium"
         style={{ color: 'var(--color-text-primary)', fontSize: 'var(--font-size-page-title)', lineHeight: 1.25 }}
       >
-        交易意图
+        交易复盘
       </h1>
 
       {/* Tabs */}
       <div className="flex" style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
-        {([['list', '意图列表'], ['stats', '复盘统计']] as const).map(([key, label]) => (
+        {([['stats', '复盘统计'], ['list', '历史交易列表']] as const).map(([key, label]) => (
           <button key={key} onClick={() => setTab(key)} className="px-4 py-2.5 text-sm transition-colors duration-[120ms]"
             style={{
               borderBottom: tab === key ? '2px solid var(--color-primary)' : '2px solid transparent',
@@ -95,7 +95,7 @@ export default function Intents() {
           ) : intents.length === 0 ? (
             <div className="flex flex-col items-center py-24 gap-3">
               <p className="text-sm" style={{ color: 'var(--color-text-tertiary)' }}>
-                还没有意图记录。在流水页点击任意成交记录开始添加。
+                还没有交易记录。在流水页点击任意成交记录开始添加。
               </p>
               <button className="text-sm underline" style={{ color: 'var(--color-primary)' }} onClick={() => navigate('/')}>
                 去流水页
@@ -113,7 +113,7 @@ export default function Intents() {
                   }}
                   onMouseEnter={e => (e.currentTarget.style.background = 'var(--color-bg-surface-hover)')}
                   onMouseLeave={e => (e.currentTarget.style.background = 'var(--color-bg-surface)')}
-                  onClick={() => intent.trade_id && navigate(`/reviews/trade/${intent.trade_id}`)}
+                  onClick={() => intent.stock_code && navigate(`/intents/stock/${intent.stock_code}`)}
                 >
                   <div className="flex-1 flex flex-col gap-1.5">
                     <div className="flex items-center gap-2">
