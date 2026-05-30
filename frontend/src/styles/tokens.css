@@ -38,11 +38,11 @@
   --color-primary-subtle: rgba(201, 101, 66, 0.08);
   --color-focus-ring: #3898ec;
 
-  /* Semantic — financial */
-  --color-profit: #16a34a;
-  --color-profit-bg: rgba(22, 163, 74, 0.08);
-  --color-loss: #b53333;
-  --color-loss-bg: rgba(181, 51, 51, 0.08);
+  /* Semantic — financial (红涨绿跌，A股惯例) */
+  --color-profit: #b53333;
+  --color-profit-bg: rgba(181, 51, 51, 0.08);
+  --color-loss: #16a34a;
+  --color-loss-bg: rgba(22, 163, 74, 0.08);
   --color-neutral-market: #5e5d59;
   --color-success: #16a34a;
   --color-warning: #d97706;

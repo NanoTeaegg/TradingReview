@@ -4,7 +4,6 @@ import { useQueryClient } from '@tanstack/react-query'
 import {
   Upload,
   History,
-  Settings,
   CheckCircle2,
   AlertCircle,
   XCircle,
@@ -41,6 +40,7 @@ const navItems: { to: string; label: string; end?: boolean }[] = [
   { to: '/holdings', label: '当日持仓' },
   { to: '/intents', label: '交易复盘' },
   { to: '/rules', label: '交易规则' },
+  { to: '/settings', label: '设置' },
 ]
 
 export default function Topbar() {
@@ -177,6 +177,44 @@ export default function Topbar() {
 
         <div className="flex-1" />
 
+        {/* Upload button */}
+        <button
+          onClick={handleUploadClick}
+          className={`${actionClass} group`}
+          style={{ color: 'var(--color-text-secondary)', background: 'transparent' }}
+          onMouseEnter={e => (e.currentTarget.style.color = 'var(--color-text-primary)')}
+          onMouseLeave={e => (e.currentTarget.style.color = 'var(--color-text-secondary)')}
+        >
+          <Upload size={16} strokeWidth={1.8} />
+          <span className="relative">
+            <span className="font-semibold opacity-0 select-none" aria-hidden="true">上传文件</span>
+            <span className="absolute inset-0 font-medium group-hover:font-semibold">上传文件</span>
+          </span>
+        </button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".xls,.csv"
+          className="hidden"
+          onChange={handleFileInput}
+        />
+
+        {/* Import history button */}
+        <button
+          onClick={() => setShowHistory(true)}
+          className={`${actionClass} group`}
+          style={{ color: 'var(--color-text-secondary)', background: 'transparent' }}
+          onMouseEnter={e => (e.currentTarget.style.color = 'var(--color-text-primary)')}
+          onMouseLeave={e => (e.currentTarget.style.color = 'var(--color-text-secondary)')}
+        >
+          <History size={16} strokeWidth={1.8} />
+          <span className="relative">
+            <span className="font-semibold opacity-0 select-none" aria-hidden="true">导入历史</span>
+            <span className="absolute inset-0 font-medium group-hover:font-semibold">导入历史</span>
+          </span>
+        </button>
+
+        {/* Account switcher (rightmost) */}
         <div className="relative" ref={accountMenuRef}>
           <button
             type="button"
@@ -233,53 +271,6 @@ export default function Topbar() {
             </div>
           )}
         </div>
-
-        {/* Upload button */}
-        <button
-          onClick={handleUploadClick}
-          className={`${actionClass} group`}
-          style={{ color: 'var(--color-text-secondary)', background: 'transparent' }}
-          onMouseEnter={e => (e.currentTarget.style.color = 'var(--color-text-primary)')}
-          onMouseLeave={e => (e.currentTarget.style.color = 'var(--color-text-secondary)')}
-        >
-          <Upload size={16} strokeWidth={1.8} />
-          <span className="relative">
-            <span className="font-semibold opacity-0 select-none" aria-hidden="true">上传文件</span>
-            <span className="absolute inset-0 font-medium group-hover:font-semibold">上传文件</span>
-          </span>
-        </button>
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept=".xls,.csv"
-          className="hidden"
-          onChange={handleFileInput}
-        />
-
-        {/* Import history button */}
-        <button
-          onClick={() => setShowHistory(true)}
-          className={`${actionClass} group`}
-          style={{ color: 'var(--color-text-secondary)', background: 'transparent' }}
-          onMouseEnter={e => (e.currentTarget.style.color = 'var(--color-text-primary)')}
-          onMouseLeave={e => (e.currentTarget.style.color = 'var(--color-text-secondary)')}
-        >
-          <History size={16} strokeWidth={1.8} />
-          <span className="relative">
-            <span className="font-semibold opacity-0 select-none" aria-hidden="true">导入历史</span>
-            <span className="absolute inset-0 font-medium group-hover:font-semibold">导入历史</span>
-          </span>
-        </button>
-
-        {/* Settings */}
-        <NavLink
-          to="/settings"
-          className={actionClass}
-          style={{ color: '#faf9f5', background: '#141413' }}
-        >
-          <Settings size={16} strokeWidth={1.8} />
-          设置
-        </NavLink>
       </div>
 
       <div style={{ borderTop: '1px solid var(--color-border-subtle)' }}>

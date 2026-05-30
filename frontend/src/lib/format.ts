@@ -2,9 +2,10 @@
 export function formatAmount(value: number | null | undefined): string {
   if (value == null) return '—'
   const abs = Math.abs(value)
-  if (abs >= 1e8) return `¥${(value / 1e8).toFixed(2)}亿`
-  if (abs >= 1e4) return `¥${(value / 1e4).toFixed(2)}万`
-  return `¥${value.toFixed(2)}`
+  const sign = value < 0 ? '-' : ''
+  if (abs >= 1e8) return `${sign}¥${(abs / 1e8).toFixed(2)}亿`
+  if (abs >= 1e4) return `${sign}¥${(abs / 1e4).toFixed(2)}万`
+  return `${sign}¥${abs.toFixed(2)}`
 }
 
 /** Format percent with sign */

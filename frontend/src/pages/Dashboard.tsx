@@ -42,8 +42,8 @@ function PerfCard({ label, value, isPnl = false, isAmount = false }: { label: st
 
 function SideBadge({ side }: { side: string }) {
   const map: Record<string, { label: string; bg: string; color: string }> = {
-    buy: { label: '买入', bg: 'rgba(22,163,74,0.10)', color: 'var(--color-profit)' },
-    sell: { label: '卖出', bg: 'rgba(181,51,51,0.10)', color: 'var(--color-loss)' },
+    buy: { label: '买入', bg: 'rgba(181,51,51,0.10)', color: 'var(--color-profit)' },
+    sell: { label: '卖出', bg: 'rgba(22,163,74,0.10)', color: 'var(--color-loss)' },
     transfer_in: { label: '划入', bg: 'var(--color-border-subtle)', color: 'var(--color-text-tertiary)' },
   }
   const { label, bg, color } = map[side] ?? map['buy']
@@ -470,7 +470,7 @@ function ReturnTrendCard({ curve, loading, failed }: { curve?: EquityCurve; load
           <span className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>累计收益</span>
           {view ? (
             <span className="text-2xl font-semibold tabular-nums"
-              style={{ color: view.profit > 0 ? 'var(--color-loss)' : view.profit < 0 ? 'var(--color-profit)' : 'var(--color-text-primary)' }}>
+              style={{ color: view.profit > 0 ? 'var(--color-profit)' : view.profit < 0 ? 'var(--color-loss)' : 'var(--color-text-primary)' }}>
               {view.profit > 0 ? '+' : ''}{formatAmount(view.profit).replace('¥', '¥')}
             </span>
           ) : <span className="text-2xl font-semibold" style={{ color: 'var(--color-text-tertiary)' }}>—</span>}
@@ -479,7 +479,7 @@ function ReturnTrendCard({ curve, loading, failed }: { curve?: EquityCurve; load
           <span className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>收益率</span>
           {view ? (
             <span className="text-2xl font-semibold tabular-nums"
-              style={{ color: view.rate > 0 ? 'var(--color-loss)' : view.rate < 0 ? 'var(--color-profit)' : 'var(--color-text-primary)' }}>
+              style={{ color: view.rate > 0 ? 'var(--color-profit)' : view.rate < 0 ? 'var(--color-loss)' : 'var(--color-text-primary)' }}>
               {formatPct(view.rate)}
             </span>
           ) : <span className="text-2xl font-semibold" style={{ color: 'var(--color-text-tertiary)' }}>—</span>}
@@ -490,7 +490,7 @@ function ReturnTrendCard({ curve, loading, failed }: { curve?: EquityCurve; load
       {loading ? (
         <div className="flex items-center justify-center h-[260px] text-sm" style={{ color: 'var(--color-text-tertiary)' }}>加载中...</div>
       ) : failed ? (
-        <div className="flex items-center justify-center h-[260px] text-sm" style={{ color: 'var(--color-loss)' }}>净值曲线加载失败，请稍后重试</div>
+        <div className="flex items-center justify-center h-[260px] text-sm" style={{ color: 'var(--color-danger)' }}>净值曲线加载失败，请稍后重试</div>
       ) : !chartOption ? (
         <div className="flex items-center justify-center h-[260px] text-sm" style={{ color: 'var(--color-text-tertiary)' }}>导入成交数据后显示净值曲线</div>
       ) : (
@@ -510,7 +510,7 @@ function ReturnTrendCard({ curve, loading, failed }: { curve?: EquityCurve; load
                   {b.name}
                 </span>
                 <span className="text-sm font-medium tabular-nums"
-                  style={{ color: b.ret == null ? 'var(--color-text-tertiary)' : b.ret > 0 ? 'var(--color-loss)' : b.ret < 0 ? 'var(--color-profit)' : 'var(--color-text-secondary)' }}>
+                  style={{ color: b.ret == null ? 'var(--color-text-tertiary)' : b.ret > 0 ? 'var(--color-profit)' : b.ret < 0 ? 'var(--color-loss)' : 'var(--color-text-secondary)' }}>
                   {b.ret == null ? '—' : formatPct(b.ret)}
                 </span>
               </button>
@@ -583,7 +583,7 @@ export default function Dashboard() {
       </h1>
 
       {statsFailed && (
-        <p className="text-sm rounded-md px-4 py-3" style={{ color: 'var(--color-loss)', background: 'rgba(181,51,51,0.08)', border: '1px solid var(--color-border-subtle)' }}>
+        <p className="text-sm rounded-md px-4 py-3" style={{ color: 'var(--color-danger)', background: 'rgba(181,51,51,0.08)', border: '1px solid var(--color-border-subtle)' }}>
           汇总数据加载失败（行情接口限频或超时）。请稍后刷新；若持续失败，请检查网络/代理或 TuShare 配额。
         </p>
       )}
@@ -628,7 +628,7 @@ export default function Dashboard() {
           {tradesLoading ? (
             <p className="p-8 text-center text-sm" style={{ color: 'var(--color-text-tertiary)' }}>加载中...</p>
           ) : tradesError ? (
-            <p className="p-8 text-center text-sm" style={{ color: 'var(--color-loss)' }}>成交流水加载失败，请稍后重试</p>
+            <p className="p-8 text-center text-sm" style={{ color: 'var(--color-danger)' }}>成交流水加载失败，请稍后重试</p>
           ) : trades.length === 0 ? (
             <p className="p-8 text-center text-sm" style={{ color: 'var(--color-text-tertiary)' }}>暂无成交记录</p>
           ) : (
