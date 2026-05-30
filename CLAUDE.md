@@ -1,5 +1,5 @@
 ## 需求变更规范
-每次变更需求或新增需求，必须明确变更的范围并更新 `frontend/docs` 文档内的规范文件，并记录变更记录。
+每次变更需求或新增需求，必须明确变更的范围并更新 `docs/` 文档内的规范文件，并记录变更记录。
 
 ---
 
@@ -7,7 +7,7 @@
 
 ### 前端 `frontend/`
 - **框架**：Vite + React 19 + TypeScript
-- **样式**：Tailwind CSS v3 + CSS 变量 Design Token（见 `frontend/docs/UI_SPEC.md`）
+- **样式**：Tailwind CSS v3 + CSS 变量 Design Token（见 `docs/UI_SPEC.md`）
 - **组件库**：shadcn/ui（按需 add，不替换为其他库）
 - **路由**：react-router-dom v7
 - **数据请求**：@tanstack/react-query v5
@@ -38,11 +38,11 @@
 - 功能开发在 `feat/xxx` 分支，完成后合并 main
 - Commit 信息格式：`<type>: <subject>`（type: feat / fix / refactor / docs / style / chore）
 - 数据库结构变更必须通过 **Alembic** 迁移，禁止直接修改已有迁移文件
-- 前端 Design Token 来源唯一：`frontend/docs/UI_SPEC.md` → `src/styles/tokens.css`，不允许在组件内硬编码颜色/间距值
+- 前端 Design Token 来源唯一：`docs/UI_SPEC.md` → `frontend/src/styles/tokens.css`，不允许在组件内硬编码颜色/间距值
 
 ---
 
 ## 文件结构规范
-- 规范文档统一放 `frontend/docs/`，包括：PRD.md / UX.md / UI_SPEC.md / 技术方案.md / 后端实现计划.md / 后端实现TODO.md
+- 规范文档统一放 `docs/`，包括：PRD.md / UX.md / UI_SPEC.md / 技术方案.md / 后端实现计划.md / 后端实现TODO.md
 - 前端源码根目录：`frontend/src/`
 - 后端源码根目录：`backend/app/`
