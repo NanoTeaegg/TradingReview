@@ -1,4 +1,3 @@
-import json
 from datetime import date
 from typing import Optional
 
@@ -58,7 +57,7 @@ def list_trades(
             "fee": str(t.fee),
             "market": t.market,
             "remark": t.remark,
-            "intent_tags": json.loads(intent_map[t.id].tags or "[]") if t.id in intent_map else [],
+            "intent_tags": [tag.name for tag in intent_map[t.id].tag_objects] if t.id in intent_map else [],
             "intent_confidence": intent_map[t.id].confidence if t.id in intent_map else None,
             "intent_thesis": intent_map[t.id].thesis if t.id in intent_map else "",
         }

@@ -8,7 +8,6 @@ seed_demo.py — 向「模拟数据」账本导入演示交易数据。
 如果「模拟数据」账本已有交易记录，脚本会跳过导入但仍会补充标签数据。
 删除 tradingreview.db 后重新运行即可恢复演示数据。
 """
-import json
 import pathlib
 import sys
 
@@ -235,10 +234,10 @@ def seed_tags_and_intents(db, account_id: int) -> None:
             account_id=account_id,
             trade_id=trade.id,
             stock_code=trade.stock_code,
-            tags=json.dumps(data["tags"], ensure_ascii=False),
             thesis=data["thesis"],
             confidence=data["confidence"],
         )
+        intent.tag_objects = [tag_map[name] for name in data["tags"] if name in tag_map]
         db.add(intent)
         inserted += 1
 

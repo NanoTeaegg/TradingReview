@@ -1,12 +1,12 @@
-import json
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_account_id, get_session
-from app.models.intent import Tag, TradeIntent
+from app.models.intent import Tag, TradeIntent, intent_tag_link
 
 router = APIRouter(tags=["tags"])
 
@@ -21,14 +21,10 @@ class TagUpdate(BaseModel):
     color: Optional[str] = None
 
 
-def _intent_count(tag_name: str, db: Session, account_id: int) -> int:
-    intents = db.query(TradeIntent).filter(TradeIntent.account_id == account_id).all()
-    count = 0
-    for intent in intents:
-        tags = json.loads(intent.tags or "[]")
-        if tag_name in tags:
-            count += 1
-    return count
+def _intent_count(tag_id: int, db: Session) -> int:
+    return db.execute(
+        select(func.count()).where(intent_tag_link.c.tag_id == tag_id)
+    ).scalar() or 0
 
 
 @router.get("/tags")
@@ -39,7 +35,7 @@ def list_tags(db: Session = Depends(get_session), account_id: int = Depends(get_
             "id": t.id,
             "name": t.name,
             "color": t.color,
-            "intent_count": _intent_count(t.name, db, account_id),
+            "intent_count": _intent_count(t.id, db),
         }
         for t in tags
     ]
@@ -80,15 +76,7 @@ def update_tag(
         ).first()
         if existing:
             raise HTTPException(status_code=400, detail="标签已存在")
-        old_name = tag.name
         tag.name = body.name
-        # Sync rename in all intent.tags JSON
-        intents = db.query(TradeIntent).filter(TradeIntent.account_id == account_id).all()
-        for intent in intents:
-            tags = json.loads(intent.tags or "[]")
-            if old_name in tags:
-                tags = [body.name if t == old_name else t for t in tags]
-                intent.tags = json.dumps(tags, ensure_ascii=False)
 
     if body.color is not None:
         tag.color = body.color
@@ -99,7 +87,7 @@ def update_tag(
         "id": tag.id,
         "name": tag.name,
         "color": tag.color,
-        "intent_count": _intent_count(tag.name, db, account_id),
+        "intent_count": _intent_count(tag.id, db),
     }
 
 
@@ -112,7 +100,7 @@ def delete_tag(
     tag = db.query(Tag).filter(Tag.id == tag_id, Tag.account_id == account_id).first()
     if not tag:
         raise HTTPException(status_code=404, detail="Tag not found")
-    count = _intent_count(tag.name, db, account_id)
+    count = _intent_count(tag.id, db)
     if count > 0:
         return {"ok": False, "intent_count": count, "message": f"该标签已关联 {count} 条意图，确认删除?"}
     db.delete(tag)
@@ -129,14 +117,7 @@ def force_delete_tag(
     tag = db.query(Tag).filter(Tag.id == tag_id, Tag.account_id == account_id).first()
     if not tag:
         raise HTTPException(status_code=404, detail="Tag not found")
-    # Remove from intents
-    old_name = tag.name
-    intents = db.query(TradeIntent).filter(TradeIntent.account_id == account_id).all()
-    for intent in intents:
-        tags = json.loads(intent.tags or "[]")
-        if old_name in tags:
-            tags = [t for t in tags if t != old_name]
-            intent.tags = json.dumps(tags, ensure_ascii=False)
+    # CASCADE DELETE on intent_tag_link.tag_id removes all links automatically
     db.delete(tag)
     db.commit()
     return {"ok": True}

@@ -1,9 +1,18 @@
 from datetime import datetime
 from typing import Optional
-from sqlalchemy import String, Integer, Text, DateTime, ForeignKey, UniqueConstraint, Index, func
+from sqlalchemy import String, Integer, Text, DateTime, ForeignKey, UniqueConstraint, Index, Table, Column, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.db import Base
+
+# Many-to-many association: trade_intents ↔ tags
+intent_tag_link = Table(
+    "intent_tag_link",
+    Base.metadata,
+    Column("intent_id", Integer, ForeignKey("trade_intents.id", ondelete="CASCADE"), primary_key=True),
+    Column("tag_id", Integer, ForeignKey("tags.id", ondelete="CASCADE"), primary_key=True),
+    Index("ix_intent_tag_link_tag_id", "tag_id"),
+)
 
 
 class Tag(Base):
@@ -34,7 +43,6 @@ class TradeIntent(Base):
         Integer, ForeignKey("trades.id", ondelete="SET NULL"), nullable=True
     )
     stock_code: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)
-    tags: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # JSON array string
     thesis: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     confidence: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)  # 1-5
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
@@ -43,3 +51,8 @@ class TradeIntent(Base):
     )
 
     trade: Mapped[Optional["Trade"]] = relationship("Trade", back_populates="intents")
+    tag_objects: Mapped[list["Tag"]] = relationship(
+        "Tag",
+        secondary=intent_tag_link,
+        lazy="selectin",
+    )

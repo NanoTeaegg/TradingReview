@@ -1,5 +1,4 @@
 """Statistics: win-rate, discipline, turnover, tag performance."""
-import json
 from datetime import date, timedelta
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Optional
@@ -7,7 +6,7 @@ from typing import Optional
 from sqlalchemy.orm import Session
 
 from app.models.trade import Trade
-from app.models.intent import TradeIntent
+from app.models.intent import Tag, TradeIntent, intent_tag_link
 from app.services.pnl import run_fifo, _load_trades, RoundTrip, ZERO, Q2
 
 
@@ -16,15 +15,16 @@ def get_win_rate(db: Session, tag: Optional[str] = None, account_id: Optional[in
     _, round_trips = run_fifo(trades)
 
     if tag:
-        q = db.query(TradeIntent)
+        # Find all trade_ids linked to the named tag via the join table
+        q = (
+            db.query(TradeIntent.trade_id)
+            .join(intent_tag_link, intent_tag_link.c.intent_id == TradeIntent.id)
+            .join(Tag, Tag.id == intent_tag_link.c.tag_id)
+            .filter(Tag.name == tag, TradeIntent.trade_id.isnot(None))
+        )
         if account_id is not None:
             q = q.filter(TradeIntent.account_id == account_id)
-        intents = q.all()
-        tagged_trade_ids: set[int] = set()
-        for intent in intents:
-            tags = json.loads(intent.tags or "[]")
-            if tag in tags and intent.trade_id:
-                tagged_trade_ids.add(intent.trade_id)
+        tagged_trade_ids = {row[0] for row in q.all()}
         round_trips = [rt for rt in round_trips if rt.sell_trade_id in tagged_trade_ids]
 
     wins = [rt for rt in round_trips if rt.net_pnl > ZERO]
@@ -140,24 +140,24 @@ def get_tag_performance(db: Session, account_id: Optional[int] = None) -> list[d
     _, round_trips = run_fifo(trades)
     trade_date_map = {t.id: t.trade_date for t in trades}
 
-    intents_q = db.query(TradeIntent)
+    # Build trade_id → tag names map via the join table
+    rows = (
+        db.query(TradeIntent.trade_id, Tag.name)
+        .join(intent_tag_link, intent_tag_link.c.intent_id == TradeIntent.id)
+        .join(Tag, Tag.id == intent_tag_link.c.tag_id)
+        .filter(TradeIntent.trade_id.isnot(None))
+    )
     if account_id is not None:
-        intents_q = intents_q.filter(TradeIntent.account_id == account_id)
-    intents = intents_q.all()
+        rows = rows.filter(TradeIntent.account_id == account_id)
     trade_intent_map: dict[int, list[str]] = {}
-    for intent in intents:
-        if intent.trade_id:
-            tags = json.loads(intent.tags or "[]")
-            trade_intent_map.setdefault(intent.trade_id, []).extend(tags)
+    for trade_id, tag_name in rows.all():
+        trade_intent_map.setdefault(trade_id, []).append(tag_name)
 
     tag_rts: dict[str, list[RoundTrip]] = {}
     for rt in round_trips:
-        sell_id = rt.sell_trade_id
-        tags = trade_intent_map.get(sell_id, [])
-        for tag in tags:
-            tag_rts.setdefault(tag, []).append(rt)
+        for tag_name in trade_intent_map.get(rt.sell_trade_id, []):
+            tag_rts.setdefault(tag_name, []).append(rt)
 
-    Tag = __import__("app.models.intent", fromlist=["Tag"]).Tag
     tags_q = db.query(Tag)
     if account_id is not None:
         tags_q = tags_q.filter(Tag.account_id == account_id)

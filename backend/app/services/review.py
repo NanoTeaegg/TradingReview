@@ -1,5 +1,4 @@
 """Assemble review prompt and stream from the configured LLM provider."""
-import json
 import logging
 from datetime import date, datetime
 from typing import AsyncGenerator, Optional
@@ -70,7 +69,7 @@ def _intent_dict(i: TradeIntent) -> dict:
         "id": i.id,
         "trade_id": i.trade_id,
         "stock_code": i.stock_code,
-        "tags": json.loads(i.tags or "[]"),
+        "tags": [t.name for t in i.tag_objects],
         "thesis": i.thesis,
         "confidence": i.confidence,
     }

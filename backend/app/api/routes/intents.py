@@ -1,4 +1,3 @@
-import json
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -6,7 +5,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_account_id, get_session
-from app.models.intent import TradeIntent
+from app.models.intent import Tag, TradeIntent
 from app.models.trade import Trade
 from app.services.pnl import run_fifo, _load_trades
 
@@ -27,12 +26,21 @@ class IntentUpdate(BaseModel):
     confidence: Optional[int] = None
 
 
+def _resolve_tags(db: Session, account_id: int, tag_names: list[str]) -> list[Tag]:
+    """Return Tag objects for the given names, auto-creating any that are missing."""
+    result = []
+    for name in tag_names:
+        tag = db.query(Tag).filter(Tag.account_id == account_id, Tag.name == name).first()
+        if tag is None:
+            tag = Tag(account_id=account_id, name=name)
+            db.add(tag)
+            db.flush()
+        result.append(tag)
+    return result
+
+
 def _fmt(i: TradeIntent, db: Session, account_id: int) -> dict:
     stock_name = ""
-    pnl_realized = None
-    pnl_float = None
-    pnl_float_rate = None
-
     if i.trade_id:
         trade = db.query(Trade).filter(Trade.id == i.trade_id, Trade.account_id == account_id).first()
         if trade:
@@ -43,12 +51,12 @@ def _fmt(i: TradeIntent, db: Session, account_id: int) -> dict:
         "trade_id": i.trade_id,
         "stock_code": i.stock_code,
         "stock_name": stock_name,
-        "tags": json.loads(i.tags or "[]"),
+        "tags": [t.name for t in i.tag_objects],
         "confidence": i.confidence,
         "thesis": i.thesis,
-        "pnl_realized": pnl_realized,
-        "pnl_float": pnl_float,
-        "pnl_float_rate": pnl_float_rate,
+        "pnl_realized": None,
+        "pnl_float": None,
+        "pnl_float_rate": None,
         "created_at": i.created_at.isoformat() if i.created_at else None,
     }
 
@@ -75,10 +83,10 @@ def create_intent(
         account_id=account_id,
         trade_id=body.trade_id,
         stock_code=body.stock_code,
-        tags=json.dumps(body.tags, ensure_ascii=False),
         thesis=body.thesis,
         confidence=body.confidence,
     )
+    intent.tag_objects = _resolve_tags(db, account_id, body.tags)
     db.add(intent)
     db.commit()
     db.refresh(intent)
@@ -114,7 +122,7 @@ def update_intent(
     if not intent:
         raise HTTPException(status_code=404, detail="Intent not found")
     if body.tags is not None:
-        intent.tags = json.dumps(body.tags, ensure_ascii=False)
+        intent.tag_objects = _resolve_tags(db, account_id, body.tags)
     if body.thesis is not None:
         intent.thesis = body.thesis
     if body.confidence is not None:
@@ -180,7 +188,6 @@ def get_intent_detail(
         remaining = lots.get(code, [])
         if remaining:
             from app.services.market import MarketDataProvider
-            from app.models.trade import Trade as TradeModel
             ts_code = next((t.ts_code for t in all_trades if t.stock_code == code), None)
             if ts_code:
                 provider = MarketDataProvider(db)
