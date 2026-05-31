@@ -144,6 +144,8 @@ TuShare / akshare  ──按钮触发──▶  SQLite 本地日线库 (market_d
 
 日常流程：`git checkout -b feat/xxx` → 开发 commit → push 分支 → 开 PR → CI 绿 → merge。
 
+版本发布见 [docs/版本管理规范.md](docs/版本管理规范.md)，变更记录见 [CHANGELOG.md](CHANGELOG.md)。
+
 详见 [docs/开发协作规范.md](docs/开发协作规范.md)（含 PR 与不 PR 的区别说明）。
 
 ## 技术栈
