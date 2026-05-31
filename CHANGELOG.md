@@ -2,6 +2,22 @@
 
 本文件记录各版本的显著变更，格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](docs/版本管理规范.md)。
 
+## [v0.1.1] - 2026-05-31
+
+修复版：恢复 AI 股票复盘大模型调用，并优化设置页模型配置体验。
+
+### Fixed
+
+- AI 股票复盘：`review.py` 缺少 `import json`，触发模型分析时抛出 `NameError` 导致复盘失败
+
+### Changed
+
+- 设置页大模型：模型选择改为常驻输入框 + 可滚动列表，「获取模型」与输入框同行
+- 连接测试失败时展示结构化错误说明与排查指引
+- 账户/标签区块输入框与按钮圆角统一为 `rounded-md`
+
+---
+
 ## [v0.1.0] - 2026-05-31
 
 首个对外标记版本：本地 A 股复盘工具核心功能可用，适合个人安装体验。
@@ -30,4 +46,5 @@
 
 ---
 
+[v0.1.1]: https://github.com/NanoTeaegg/TradingReview/releases/tag/v0.1.1
 [v0.1.0]: https://github.com/NanoTeaegg/TradingReview/releases/tag/v0.1.0
