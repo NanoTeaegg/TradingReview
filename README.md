@@ -138,6 +138,14 @@ TuShare / akshare  ──按钮触发──▶  SQLite 本地日线库 (market_d
 
 ---
 
+## 开发协作
+
+`main` 分支已启用保护：**禁止直接 push**，须通过 Pull Request 合并，且 CI（Backend Tests + Frontend Lint & Build）必须通过。
+
+日常流程：`git checkout -b feat/xxx` → 开发 commit → push 分支 → 开 PR → CI 绿 → merge。
+
+详见 [docs/开发协作规范.md](docs/开发协作规范.md)（含 PR 与不 PR 的区别说明）。
+
 ## 技术栈
 
 | 层 | 技术 |
