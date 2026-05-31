@@ -1,13 +1,11 @@
 # TradingReview
 
-[![stars](https://img.shields.io/github/stars/NanoTeaegg/TradingReview?style=flat-square&label=stars)](https://github.com/NanoTeaegg/TradingReview/stargazers)
-[![license](https://img.shields.io/github/license/NanoTeaegg/TradingReview?style=flat-square&label=license)](https://github.com/NanoTeaegg/TradingReview/blob/main/LICENSE)
-[![type](https://img.shields.io/badge/Type-Trading%20Journal-212121?style=flat-square)](https://github.com/NanoTeaegg/TradingReview)
-[![market](https://img.shields.io/badge/Market-A%E8%82%A1-E53935?style=flat-square)](https://github.com/NanoTeaegg/TradingReview)
-[![frontend](https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react&logoColor=white)](https://github.com/NanoTeaegg/TradingReview/tree/main/frontend)
-[![backend](https://img.shields.io/badge/FastAPI-Python-009688?style=flat-square&logo=fastapi&logoColor=white)](https://github.com/NanoTeaegg/TradingReview/tree/main/backend)
-[![llm](https://img.shields.io/badge/LLM-Ollama%20%7C%20OpenAI-7C3AED?style=flat-square)](https://github.com/NanoTeaegg/TradingReview)
-[![deploy](https://img.shields.io/badge/Deploy-Local-4CAF50?style=flat-square)](https://github.com/NanoTeaegg/TradingReview)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python](https://img.shields.io/badge/Python-%3E%3D3.11-blue.svg)](https://www.python.org/)
+[![pnpm](https://img.shields.io/badge/pnpm-9+-blue.svg)](https://pnpm.io/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-6-blue.svg)](https://www.typescriptlang.org/)
+[![React](https://img.shields.io/badge/React-19-blue.svg)](https://react.dev/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-blue.svg)](https://fastapi.tiangolo.com/)
 
 > 把券商流水变成可复盘的交易日记  
 > Turn broker exports into a reviewable trading journal
