@@ -32,6 +32,7 @@ def test_ingest_by_trade_date_stores_full_fields(db, monkeypatch):
                 "amount": 98765.43,
             }
 
+    monkeypatch.setattr("tushare.pro_api", lambda *a, **k: object())
     monkeypatch.setattr("app.services.market._retry", lambda fn: FakeDf())
 
     n = provider.ingest_stock_daily_by_trade_date(date(2026, 5, 29))
@@ -88,6 +89,7 @@ def test_ingest_stock_daily_history_full_fields(db, monkeypatch):
                 "amount": 2000.0,
             }
 
+    monkeypatch.setattr("tushare.pro_api", lambda *a, **k: object())
     monkeypatch.setattr("app.services.market._retry", lambda fn: FakeDf())
 
     n = provider.ingest_stock_daily_history("000001.SZ", date(2026, 1, 1), date(2026, 5, 29))
