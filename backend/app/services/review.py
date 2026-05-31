@@ -1,4 +1,5 @@
 """Assemble review prompt and stream from the configured LLM provider."""
+import json
 import logging
 from datetime import date, datetime
 from typing import AsyncGenerator, Optional

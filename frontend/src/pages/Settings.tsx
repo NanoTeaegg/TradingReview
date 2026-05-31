@@ -250,11 +250,7 @@ export default function Settings() {
         <Check size={12} className="mt-0.5 shrink-0" /> <span className="min-w-0 break-words">{pingMsg}</span>
       </span>
     )
-    if (connStatus === 'fail') return (
-      <span className="flex min-w-0 items-start gap-1.5 text-xs" style={{ color: 'var(--color-danger)' }}>
-        <X size={12} className="mt-0.5 shrink-0" /> <span className="min-w-0 break-words">{pingMsg || '连接失败'}</span>
-      </span>
-    )
+    if (connStatus === 'fail') return null
     return null
   })()
 
@@ -274,7 +270,7 @@ export default function Settings() {
           style={{ border: '1px solid var(--color-border-subtle)', background: 'var(--color-bg-surface)' }}>
           <div className="flex items-center gap-3 px-4 py-3" style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
             <input
-              className="flex-1 h-8 px-3 rounded text-sm outline-none"
+              className="flex-1 h-8 px-3 rounded-md text-sm outline-none"
               style={{ border: '1px solid var(--color-border-default)', color: 'var(--color-text-primary)' }}
               placeholder="新账本名称"
               value={accountName}
@@ -284,7 +280,7 @@ export default function Settings() {
               onBlur={e => (e.currentTarget.style.borderColor = 'var(--color-border-default)')}
             />
             <button
-              className="flex items-center gap-1 px-3 h-8 rounded text-xs font-medium transition-colors duration-[120ms] disabled:opacity-45"
+              className="flex items-center gap-1 px-3 h-8 rounded-md text-xs font-medium transition-colors duration-[120ms] disabled:opacity-45"
               style={{ background: 'var(--color-primary)', color: 'var(--color-text-on-brand)' }}
               onClick={addAccount}
               disabled={createAccount.isPending}
@@ -635,22 +631,9 @@ export default function Settings() {
             <label className="text-xs font-medium" style={{ color: 'var(--color-text-secondary)' }}>
               模型
             </label>
-            {availableModels.length > 0 ? (
-              <select
-                className="h-9 px-3 rounded-md text-sm outline-none"
-                style={{ border: '1px solid var(--color-border-default)', color: 'var(--color-text-primary)', background: 'var(--color-bg-surface)' }}
-                value={modelName}
-                onChange={e => { setModelName(e.target.value); handleLLMChange() }}
-                onFocus={e => (e.currentTarget.style.borderColor = 'var(--color-focus-ring)')}
-                onBlur={e => (e.currentTarget.style.borderColor = 'var(--color-border-default)')}
-              >
-                {availableModels.map(model => (
-                  <option key={model} value={model}>{model}</option>
-                ))}
-              </select>
-            ) : (
+            <div className="flex items-center gap-2">
               <input
-                className="h-9 px-3 rounded-md text-sm outline-none"
+                className="min-w-0 flex-1 h-9 px-3 rounded-md text-sm outline-none"
                 style={{ border: '1px solid var(--color-border-default)', color: 'var(--color-text-primary)' }}
                 value={modelName}
                 onChange={e => { setModelName(e.target.value); handleLLMChange() }}
@@ -658,22 +641,52 @@ export default function Settings() {
                 onBlur={e => (e.currentTarget.style.borderColor = 'var(--color-border-default)')}
                 placeholder={selectedVendor.defaultModel || '输入模型 ID'}
               />
+              <button
+                type="button"
+                className="inline-flex h-9 shrink-0 items-center justify-center gap-1.5 px-3 rounded-md text-sm transition-colors duration-[120ms] disabled:opacity-45"
+                style={{ background: 'var(--color-bg-surface-selected)', color: 'var(--color-text-primary)', border: '1px solid var(--color-border-default)' }}
+                onClick={testConnection}
+                disabled={connStatus === 'testing' || saveLLMSettings.isPending}
+              >
+                {connStatus === 'testing' ? <Loader2 size={14} className="animate-spin" /> : <ListRestart size={14} />}
+                <span>{connStatus === 'testing' ? '获取中' : '获取模型'}</span>
+              </button>
+            </div>
+            {connStatusEl && <div>{connStatusEl}</div>}
+            {availableModels.length > 0 && (
+              <div className="flex flex-col rounded-md overflow-y-auto" style={{ border: '1px solid var(--color-border-subtle)', maxHeight: '180px' }}>
+                {availableModels.map(model => (
+                  <button
+                    key={model}
+                    type="button"
+                    className="flex items-center justify-between px-3 py-2 text-left text-xs transition-colors duration-[120ms]"
+                    style={{
+                      borderBottom: '1px solid var(--color-border-subtle)',
+                      color: model === modelName ? 'var(--color-primary)' : 'var(--color-text-secondary)',
+                      background: model === modelName ? 'var(--color-bg-surface-selected)' : 'transparent',
+                    }}
+                    onClick={() => { setModelName(model); handleLLMChange() }}
+                  >
+                    <span className="font-mono">{model}</span>
+                    {model === modelName && <Check size={12} />}
+                  </button>
+                ))}
+              </div>
             )}
           </div>
-          <div className="grid grid-cols-[112px_minmax(0,1fr)] items-start gap-3">
-            <button
-              className="inline-flex h-9 w-28 items-center justify-center gap-1.5 rounded-md text-sm leading-none transition-colors duration-[120ms] disabled:opacity-45"
-              style={{ background: 'var(--color-bg-surface-selected)', color: 'var(--color-text-primary)', border: '1px solid var(--color-border-default)' }}
-              onClick={testConnection}
-              disabled={connStatus === 'testing' || saveLLMSettings.isPending}
-            >
-              {connStatus === 'testing' ? <Loader2 size={14} className="animate-spin" /> : <ListRestart size={14} />}
-              <span>{connStatus === 'testing' ? '获取中' : '获取模型'}</span>
-            </button>
-            <div className="min-w-0 pt-2">
-              {connStatusEl}
+          {connStatus === 'fail' && (
+            <div className="flex flex-col gap-1 px-3 py-2.5 rounded-md text-xs" style={{ background: 'rgba(181,51,51,0.06)', border: '1px solid var(--color-danger)' }}>
+              <span className="font-medium" style={{ color: 'var(--color-danger)' }}>连接失败，无法获取模型列表</span>
+              {pingMsg && (
+                <span className="font-mono break-all" style={{ color: 'var(--color-text-secondary)' }}>{pingMsg}</span>
+              )}
+              <span style={{ color: 'var(--color-text-tertiary)' }}>
+                {selectedVendor.provider === 'ollama'
+                  ? '请确认 Ollama 服务已启动（ollama serve），且 API 地址填写正确。'
+                  : '请检查 API 地址格式是否正确，以及 API Key 是否有效。'}
+              </span>
             </div>
-          </div>
+          )}
           <div className="flex items-center justify-end">
             <button
               className="px-4 h-9 rounded-md text-sm font-medium transition-colors duration-[120ms] disabled:opacity-45"
@@ -697,7 +710,7 @@ export default function Settings() {
           {/* Add new */}
           <div className="flex items-center gap-3 px-4 py-3" style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
             <input
-              className="flex-1 h-8 px-3 rounded text-sm outline-none"
+              className="flex-1 h-8 px-3 rounded-md text-sm outline-none"
               style={{ border: '1px solid var(--color-border-default)', color: 'var(--color-text-primary)' }}
               placeholder="新标签名称"
               value={newTagName}
@@ -707,7 +720,7 @@ export default function Settings() {
               onBlur={e => (e.currentTarget.style.borderColor = 'var(--color-border-default)')}
             />
             <button
-              className="flex items-center gap-1 px-3 h-8 rounded text-xs font-medium transition-colors duration-[120ms] disabled:opacity-45"
+              className="flex items-center gap-1 px-3 h-8 rounded-md text-xs font-medium transition-colors duration-[120ms] disabled:opacity-45"
               style={{ background: 'var(--color-primary)', color: 'var(--color-text-on-brand)' }}
               onClick={addTag}
               disabled={createTag.isPending}
