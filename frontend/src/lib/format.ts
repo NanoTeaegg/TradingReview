@@ -8,6 +8,24 @@ export function formatAmount(value: number | null | undefined): string {
   return `${sign}¥${abs.toFixed(2)}`
 }
 
+/** Format CNY as a full amount without 万/亿 compaction. */
+export function formatExactAmount(value: number | string | null | undefined): string {
+  if (value == null) return '—'
+  const raw = String(value).trim()
+  if (!raw) return '—'
+
+  const sign = raw.startsWith('-') ? '-' : ''
+  const unsigned = sign ? raw.slice(1) : raw
+  const [intPartRaw, decimalPartRaw = ''] = unsigned.split('.')
+  const intPart = (intPartRaw || '0').replace(/^0+(?=\d)/, '')
+  const formattedInt = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',')
+  const trimmedDecimal = decimalPartRaw.length > 2
+    ? decimalPartRaw.replace(/0+$/, '').padEnd(2, '0')
+    : decimalPartRaw.padEnd(2, '0')
+
+  return `${sign}¥${formattedInt}.${trimmedDecimal}`
+}
+
 /** Format percent without an explicit positive sign. Sign-aware wrappers add '+' where needed. */
 export function formatPct(value: number | null | undefined): string {
   if (value == null) return '—'

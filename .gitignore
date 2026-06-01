@@ -33,6 +33,9 @@ dist-ssr/
 *.local
 
 # 数据库（含个人交易数据，勿提交）
+*.db
+*.db-shm
+*.db-wal
 backend/*.db
 backend/*.db-shm
 backend/*.db-wal

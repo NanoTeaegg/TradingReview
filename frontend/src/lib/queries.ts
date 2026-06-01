@@ -11,6 +11,7 @@ export const n = (v: string | number | null | undefined): number =>
 export interface Trade {
   id: number
   trade_date: string
+  trade_time: string
   stock_code: string
   stock_name: string
   ts_code: string
@@ -140,10 +141,18 @@ export interface Discipline {
 }
 
 export interface TurnoverItem {
-  month: string
+  week: string
+  week_start: string
+  week_end: string
   volume: string
-  start_value: string
+  avg_holding_value: string
+  buy_amount: string
+  sell_amount: string
+  buy_count: number
+  sell_count: number
+  trade_count: number
   turnover_rate: number | null
+  level: 'none' | 'normal' | 'frequent' | 'high'
   warning: boolean
 }
 
@@ -187,6 +196,16 @@ export interface CashFlowList {
   net_deposit: string
 }
 
+export interface FeeSettings {
+  commission_rate: string
+  commission_min_fee_exempt: boolean
+  regulatory_fee_rate: string
+  exchange_handling_fee_rate: string
+  transfer_fee_rate: string
+  stamp_tax_rate: string
+  recalculated_count?: number
+}
+
 export interface ImportBatch {
   id: number
   filename: string
@@ -226,6 +245,7 @@ export function invalidateAccountScopedQueries(qc: ReturnType<typeof useQueryCli
     'tag-performance',
     'reviews',
     'cash-flows',
+    'fee-settings',
     'imports',
     'rules',
     'rule-versions',
@@ -293,6 +313,34 @@ export function useCopyRuleToCurrentAccount() {
   })
 }
 
+// ── fee settings ─────────────────────────────────────────────
+
+export function useFeeSettings() {
+  const { queryKey } = useAccountScopedKey(['fee-settings'])
+  return useQuery<FeeSettings>({
+    queryKey,
+    queryFn: () => api.get('/api/settings/fee').then(r => r.data),
+  })
+}
+
+export function useSaveFeeSettings() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (data: { commission_rate: string; commission_min_fee_exempt: boolean }) =>
+      api.put('/api/settings/fee', data).then(r => r.data as FeeSettings),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['fee-settings'] })
+      qc.invalidateQueries({ queryKey: ['trades'] })
+      qc.invalidateQueries({ queryKey: ['positions'] })
+      qc.invalidateQueries({ queryKey: ['summary'] })
+      qc.invalidateQueries({ queryKey: ['equity-curve'] })
+      qc.invalidateQueries({ queryKey: ['win-rate'] })
+      qc.invalidateQueries({ queryKey: ['turnover'] })
+      qc.invalidateQueries({ queryKey: ['tag-performance'] })
+    },
+  })
+}
+
 // ── trades ───────────────────────────────────────────────────
 
 export function useTrades(params?: { stock?: string; side?: string; start?: string; end?: string }) {
@@ -351,22 +399,6 @@ export function useSentiment() {
   })
 }
 
-export interface MarketSyncResult {
-  ok: boolean
-  status?: 'success' | 'skipped_today' | 'up_to_date' | 'partial'
-  message?: string
-  warnings?: string[]
-  skipped_today?: boolean
-  skip_reason?: string | null
-  start: string
-  end: string
-  target_end?: string
-  synced_days: number
-  index_rows: number
-  min_date?: string | null
-  max_date?: string | null
-}
-
 export type FullHistoryStatusValue =
   | 'idle' | 'running' | 'complete' | 'error' | 'cancelled' | 'interrupted'
 
@@ -392,16 +424,43 @@ function invalidateMarketDependentQueries(qc: ReturnType<typeof useQueryClient>)
   qc.invalidateQueries({ queryKey: ['intents'] })
 }
 
-/** 「拉取最新行情」：按交易日全市场增量。 */
+export type LatestSyncStatusValue = 'idle' | 'running' | 'complete' | 'error' | 'interrupted'
+
+export interface LatestSyncStatus {
+  status: LatestSyncStatusValue
+  running: boolean
+  message: string | null
+  started_at: string | null
+  finished_at: string | null
+  min_date: string | null
+  max_date: string | null
+}
+
+/** 「拉取最新行情」：启动后台任务并立即返回，进度由 useLatestSyncStatus 轮询。 */
 export function useSyncLatestMarket() {
   const qc = useQueryClient()
-  return useMutation<MarketSyncResult>({
-    mutationFn: () => api.post('/api/market/sync', {}, { timeout: 120_000 }).then(r => r.data),
-    onSuccess: () => {
-      invalidateMarketDependentQueries(qc)
-      qc.invalidateQueries({ queryKey: ['market-history'] })
-    },
+  return useMutation<LatestSyncStatus>({
+    mutationFn: () => api.post('/api/market/sync').then(r => r.data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['market-sync-status'] }),
   })
+}
+
+/** 「拉取最新行情」后台任务进度；运行中自动轮询（完成后刷新行情视图由调用方处理）。 */
+export function useLatestSyncStatus() {
+  return useQuery<LatestSyncStatus>({
+    queryKey: ['market-sync-status'],
+    queryFn: () => api.get('/api/market/sync/status').then(r => r.data),
+    refetchInterval: (query) => (query.state.data?.running ? 2000 : false),
+  })
+}
+
+/** 行情落库后刷新所有依赖视图（供后台同步完成时调用）。 */
+export function useInvalidateMarketViews() {
+  const qc = useQueryClient()
+  return () => {
+    invalidateMarketDependentQueries(qc)
+    qc.invalidateQueries({ queryKey: ['market-history'] })
+  }
 }
 
 /** 全量历史进度；任务运行中时自动轮询。 */

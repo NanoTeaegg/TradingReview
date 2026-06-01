@@ -8,9 +8,10 @@ from app.services.market import MarketDataProvider
 from app.services.market_sync import (
     cancel_full_history,
     get_full_history_status,
+    get_latest_sync_status,
     is_full_history_running,
     start_full_history,
-    sync_latest,
+    start_latest_sync,
 )
 from app.services.sentiment import get_market_sentiment
 
@@ -38,10 +39,19 @@ def sentiment(db: Session = Depends(get_session)):
 
 @router.post("/market/sync")
 def sync_latest_market(db: Session = Depends(get_session)):
-    """「拉取最新行情」：按交易日 daily(trade_date) 全市场增量（DB 最新日期 → 可同步目标日）。"""
+    """启动后台「拉取最新行情」任务并立即返回；前端轮询 /market/sync/status 查看进度。
+
+    改为后台任务后，TuShare 限频 62s 退避等耗时不再随 HTTP 请求阻塞，避免顶穿前端超时。
+    """
     if is_full_history_running():
         raise HTTPException(status_code=409, detail="全量历史同步进行中，请稍后再试「拉取最新行情」")
-    return sync_latest(db)
+    return start_latest_sync()
+
+
+@router.get("/market/sync/status")
+def latest_sync_status(db: Session = Depends(get_session)):
+    """「拉取最新行情」后台任务进度。"""
+    return get_latest_sync_status(db)
 
 
 @router.get("/market/history")

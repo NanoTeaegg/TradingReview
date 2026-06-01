@@ -1,7 +1,9 @@
 import asyncio
 import logging
+import threading
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
+from typing import Callable, TypeVar
 from zoneinfo import ZoneInfo
 
 from sqlalchemy.orm import Session
@@ -17,6 +19,37 @@ logger = logging.getLogger("tradingreview.sentiment")
 CN_TZ = ZoneInfo("Asia/Shanghai")
 COLLECT_AT = time(16, 10)
 STARTUP_BACKFILL_DAYS = 30
+
+# 外部行情调用硬超时：TuShare/akshare 底层 requests 默认无超时，
+# 东财/接口慢或不可达时会无限挂起，拖死同步请求与 worker，故统一加超时上限。
+TUSHARE_FETCH_TIMEOUT_SEC = 30
+AKSHARE_FETCH_TIMEOUT_SEC = 15
+
+_T = TypeVar("_T")
+
+
+def _call_with_timeout(fn: Callable[[], _T], timeout_sec: float, label: str) -> _T:
+    """在独立守护线程中执行 fn，超过 timeout_sec 即放弃并抛 TimeoutError。
+
+    超时后底层线程可能仍被卡住的 socket 占用，但作为守护线程不会阻塞进程退出，
+    调用方据此降级（如涨跌停数记 0），从而避免单个外部调用拖垮整个同步请求。
+    """
+    box: dict[str, object] = {}
+
+    def runner() -> None:
+        try:
+            box["value"] = fn()
+        except Exception as exc:  # noqa: BLE001 - 原样回传给调用线程处理
+            box["error"] = exc
+
+    worker = threading.Thread(target=runner, name=f"fetch-{label}", daemon=True)
+    worker.start()
+    worker.join(timeout_sec)
+    if worker.is_alive():
+        raise TimeoutError(f"{label} 超过 {timeout_sec}s 未返回")
+    if "error" in box:
+        raise box["error"]  # type: ignore[misc]
+    return box["value"]  # type: ignore[return-value]
 
 
 def get_market_sentiment(db: Session) -> dict:
@@ -160,7 +193,11 @@ def _fetch_tushare_daily_sentiment(trade_date: date) -> dict:
     import tushare as ts
 
     pro = ts.pro_api(settings.TUSHARE_API_KEY)
-    df = pro.daily(trade_date=trade_date.strftime("%Y%m%d"))
+    df = _call_with_timeout(
+        lambda: pro.daily(trade_date=trade_date.strftime("%Y%m%d")),
+        TUSHARE_FETCH_TIMEOUT_SEC,
+        "tushare daily",
+    )
     if df is None or df.empty:
         raise RuntimeError("empty TuShare daily result")
 
@@ -195,14 +232,22 @@ def _fetch_limit_counts(trade_date: date) -> tuple[int, int]:
     limit_up = 0
     limit_down = 0
     try:
-        limit_up_df = ak.stock_zt_pool_em(date=trade_date_text)
+        limit_up_df = _call_with_timeout(
+            lambda: ak.stock_zt_pool_em(date=trade_date_text),
+            AKSHARE_FETCH_TIMEOUT_SEC,
+            "akshare 涨停池",
+        )
         if limit_up_df is not None:
             limit_up = len(limit_up_df)
     except Exception as exc:
         logger.warning("akshare limit-up fetch for %s failed: %s", trade_date, exc)
 
     try:
-        limit_down_df = ak.stock_dt_pool_em(date=trade_date_text)
+        limit_down_df = _call_with_timeout(
+            lambda: ak.stock_dt_pool_em(date=trade_date_text),
+            AKSHARE_FETCH_TIMEOUT_SEC,
+            "akshare 跌停池",
+        )
         if limit_down_df is not None:
             limit_down = len(limit_down_df)
     except Exception as exc:

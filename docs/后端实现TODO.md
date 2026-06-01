@@ -46,7 +46,7 @@
 
 ## 阶段 2 · M2 导入（功能 2 / PRD 2.1–2.8）
 
-- [ ] `services/fee.py`：手续费规则（佣金 max(额×0.00008,5) 双向 / 印花税 额×0.0005 仅卖 / 过户费 额×0.00001 仅沪A双向 / transfer_in 不计费），全 Decimal `ROUND_HALF_UP` 到 2 位
+- [ ] `services/fee.py`：手续费规则（佣金=额×当前账本佣金费率，默认万4，费率上限千3；未勾选免5时最低5元，勾选免5时免最低额 / 证管费 额×0.00002 双向 / 交易经手费 额×0.0000341 双向 / 过户费 额×0.00001 双向 / 印花税 额×0.0005 仅卖 / transfer_in 不计费），全 Decimal `ROUND_HALF_UP` 到 2 位
 - [ ] `services/importer.py`：
   - [ ] 读 bytes → `sha256` file_hash；命中 `import_batches.file_hash` → 拒绝「已导入」（2.3）
   - [ ] 格式探测：含 `<table>`/`<html>` → `pandas.read_html()`（2.7）；否则 GB18030 + `\r\n` 分行 + `\t` 分列 + 剔行尾空列
@@ -57,6 +57,7 @@
   - [ ] 写 `raw_import_rows`（parsed/error）+ `trades` + `import_batches`（period 从文件名解析，失败取 trades min/max 日期）
   - [ ] 返回 `{batch_id, inserted, skipped_dup, failed:[...]}`
 - [ ] `api/routes/imports.py`：`POST /api/imports`（multipart）/ `GET /api/imports` / `GET /api/imports/{id}/rows`
+- [ ] `api/routes/settings.py`：`GET/PUT /api/settings/fee` 读写当前账本手续费设置；`PUT` 保存后自动重算当前账本历史 `trades.fee`
 - [ ] `tests/test_fee.py`：买/卖/沪A/深A/transfer_in 各分支
 - [ ] `tests/test_importer.py`：样本行数、transfer_in 映射、去重、HTML 兜底、失败行收集
 - [ ] **验收**：样本入库成功率 ≥99%；file_hash 二次上传被拦；重复行被跳过并标注
@@ -91,7 +92,7 @@
 - [ ] `services/stats.py` + `api/routes/stats.py`：
   - [ ] `win-rate`：基于 round-trip 胜率/均盈/均亏，可按标签拆分（3.8）
   - [ ] `discipline`：已打标签成交/总成交，<60% 提示（3.9）
-  - [ ] `turnover`：每月成交额/月初市值，近6月趋势，>200% 标注（3.10）
+  - [ ] `turnover`：近12个自然周周换手率；本周买入+卖出成交额 / 本周平均持仓市值；返回 normal/frequent/high 等级供折线分段与「操作频繁」提示（3.10）
   - [ ] `tag-performance`：按标签 次数/胜率/均盈亏/均持仓天数（3.11）
 - [ ] **验收**：PRD 3.1–3.11
 

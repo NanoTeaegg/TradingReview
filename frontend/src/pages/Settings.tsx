@@ -1,17 +1,19 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { Check, X, Plus, Pencil, Trash2, Loader2, ChevronDown, ChevronUp, Database, RefreshCw, Eye, EyeOff, KeyRound, ListRestart } from 'lucide-react'
 import {
   useTags, useCreateTag, useUpdateTag, useDeleteTag,
   useLLMSettings, useSaveLLMSettings, usePingLLM,
-  useCashFlows, useCreateCashFlow, useDeleteCashFlow, n,
+  useCashFlows, useCreateCashFlow, useDeleteCashFlow,
+  useFeeSettings, useSaveFeeSettings,
   useFullHistoryStatus, useStartFullHistory, useCancelFullHistory, useSyncLatestMarket,
+  useLatestSyncStatus, useInvalidateMarketViews,
   useAccounts, useCreateAccount, useDeleteAccount,
   invalidateAccountScopedQueries,
   type LLMProvider,
 } from '@/lib/queries'
 import { useCurrentAccountId, useSetCurrentAccountId } from '@/lib/account'
 import { useQueryClient } from '@tanstack/react-query'
-import { formatAmount, formatTradeDate } from '@/lib/format'
+import { formatExactAmount, formatTradeDate } from '@/lib/format'
 
 type ConnStatus = 'idle' | 'testing' | 'ok' | 'fail'
 type ModelVendorId = 'ollama' | 'openai' | 'deepseek' | 'moonshot' | 'dashscope' | 'zhipu' | 'openrouter' | 'custom'
@@ -65,6 +67,9 @@ export default function Settings() {
   const [cashOpen, setCashOpen] = useState(false)
   const [cashAmount, setCashAmount] = useState('')
   const [cashError, setCashError] = useState('')
+  const [feeRateInput, setFeeRateInput] = useState('0.04')
+  const [feeMinExempt, setFeeMinExempt] = useState(false)
+  const [feeMsg, setFeeMsg] = useState<{ ok: boolean; text: string } | null>(null)
   const [accountName, setAccountName] = useState('')
   const [accountMsg, setAccountMsg] = useState<{ ok: boolean; text: string } | null>(null)
   const [deleteAccountId, setDeleteAccountId] = useState<number | null>(null)
@@ -91,17 +96,46 @@ export default function Settings() {
   const { data: cashFlows } = useCashFlows()
   const createCashFlow = useCreateCashFlow()
   const deleteCashFlow = useDeleteCashFlow()
+  const { data: feeSettings } = useFeeSettings()
+  const saveFeeSettings = useSaveFeeSettings()
 
   const { data: historyStatus } = useFullHistoryStatus()
   const startHistory = useStartFullHistory()
   const cancelHistory = useCancelFullHistory()
   const syncLatest = useSyncLatestMarket()
+  const { data: syncStatus } = useLatestSyncStatus()
+  const invalidateMarketViews = useInvalidateMarketViews()
   const [marketMsg, setMarketMsg] = useState<{ ok: boolean; text: string } | null>(null)
 
+  // 后台「拉取最新行情」完成时刷新依赖行情的视图并展示结果文案
+  const wasSyncRunning = useRef(false)
+  useEffect(() => {
+    if (wasSyncRunning.current && syncStatus && !syncStatus.running) {
+      if (syncStatus.status === 'complete') {
+        invalidateMarketViews()
+        setMarketMsg({ ok: true, text: syncStatus.message ?? (syncStatus.max_date ? `已更新到 ${syncStatus.max_date}` : '已是最新') })
+      } else if (syncStatus.status === 'error') {
+        setMarketMsg({ ok: false, text: syncStatus.message ?? '拉取失败，请稍后重试' })
+      } else if (syncStatus.status === 'interrupted') {
+        setMarketMsg({ ok: false, text: '同步任务被中断（服务可能已重启），请重新拉取' })
+      }
+    }
+    wasSyncRunning.current = syncStatus?.running ?? false
+  }, [syncStatus, invalidateMarketViews])
+
+  const syncRunning = (syncStatus?.running ?? false) || syncLatest.isPending
   const running = historyStatus?.running ?? false
   const total = historyStatus?.total ?? 0
   const done = historyStatus?.done ?? 0
   const progressPct = total > 0 ? Math.round((done / total) * 100) : 0
+
+  useEffect(() => {
+    if (feeSettings) {
+      setFeeRateInput(formatPercentRate(feeSettings.commission_rate))
+      setFeeMinExempt(feeSettings.commission_min_fee_exempt)
+      setFeeMsg(null)
+    }
+  }, [feeSettings])
 
   function handleStartHistory() {
     setMarketMsg(null)
@@ -113,16 +147,7 @@ export default function Settings() {
   function handleSyncLatest() {
     setMarketMsg(null)
     syncLatest.mutate(undefined, {
-      onSuccess: (res) => {
-        const text = res.message ?? (res.max_date ? `已更新到 ${res.max_date}` : `已更新到 ${res.end}`)
-        setMarketMsg({ ok: res.ok !== false, text })
-      },
       onError: (err) => {
-        const timeout = err instanceof Error && 'code' in err && (err as { code?: string }).code === 'ECONNABORTED'
-        if (timeout) {
-          setMarketMsg({ ok: false, text: '拉取超时（超过 2 分钟），后台可能仍在同步，请稍后刷新查看本地日线区间' })
-          return
-        }
         const serverDetail = (
           typeof err === 'object' &&
           err !== null &&
@@ -131,12 +156,12 @@ export default function Settings() {
         )
           ? (err as { response: { data: { detail: string } } }).response.data.detail
           : null
-        setMarketMsg({ ok: false, text: serverDetail ?? '拉取失败，请稍后重试' })
+        setMarketMsg({ ok: false, text: serverDetail ?? '启动拉取失败，请稍后重试' })
       },
     })
   }
   function handleSmartMarketSync() {
-    if (running) return
+    if (running || syncRunning) return
     if (historyStatus?.has_data) {
       handleSyncLatest()
       return
@@ -263,6 +288,32 @@ export default function Settings() {
     setCashError('')
     await createCashFlow.mutateAsync({ flow_type: flowType, amount })
     setCashAmount('')
+  }
+
+  function formatPercentRate(rate: string | number | null | undefined) {
+    const value = Number(rate ?? 0) * 100
+    return Number.isFinite(value) ? Number(value.toFixed(5)).toString() : '0'
+  }
+
+  function toDecimalRate(percentRate: string) {
+    return (Number(percentRate) / 100).toFixed(8)
+  }
+
+  async function saveFee() {
+    const percentRate = feeRateInput.trim()
+    if (!percentRate || Number(percentRate) < 0 || Number.isNaN(Number(percentRate)) || Number(percentRate) > 0.3) {
+      setFeeMsg({ ok: false, text: '请输入 0% 到 0.3% 之间的总佣金费率' })
+      return
+    }
+    try {
+      const result = await saveFeeSettings.mutateAsync({
+        commission_rate: toDecimalRate(percentRate),
+        commission_min_fee_exempt: feeMinExempt,
+      })
+      setFeeMsg({ ok: true, text: `手续费设置已保存，已重算 ${result.recalculated_count ?? 0} 笔历史成交` })
+    } catch (error) {
+      setFeeMsg({ ok: false, text: error instanceof Error ? error.message : '保存手续费设置失败' })
+    }
   }
 
   const connStatusEl = (() => {
@@ -396,7 +447,7 @@ export default function Settings() {
               累计净入金
             </span>
             <span className="text-2xl font-semibold tabular-nums" style={{ color: 'var(--color-text-primary)' }}>
-              {formatAmount(n(cashFlows?.net_deposit))}
+              {formatExactAmount(cashFlows?.net_deposit)}
             </span>
           </div>
 
@@ -446,7 +497,7 @@ export default function Settings() {
                       {flow.flow_type === 'deposit' ? '入金' : '出金'}
                     </span>
                     <span className="flex-1 text-sm tabular-nums" style={{ color: 'var(--color-text-primary)' }}>
-                      {formatAmount(n(flow.amount))}
+                      {formatExactAmount(flow.amount)}
                     </span>
                     <button
                       className="p-1 rounded transition-colors duration-[120ms] disabled:opacity-45"
@@ -467,6 +518,59 @@ export default function Settings() {
                 )}
               </div>
             </div>
+          )}
+        </div>
+      </section>
+
+      {/* Fee settings */}
+      <section>
+        <h2 className="text-lg font-semibold mb-4" style={{ color: 'var(--color-text-primary)' }}>手续费设置</h2>
+        <div className="rounded-lg p-5 flex flex-col gap-5"
+          style={{ border: '1px solid var(--color-border-subtle)', background: 'var(--color-bg-surface)' }}>
+          <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
+            <label className="flex flex-col gap-2">
+              <span className="text-sm font-medium" style={{ color: 'var(--color-text-primary)' }}>总佣金费率（%）</span>
+              <div className="flex h-9 min-w-0 items-center overflow-hidden rounded-md"
+                style={{ border: '1px solid var(--color-border-default)', background: 'var(--color-bg-canvas)' }}>
+                <input
+                  className="min-w-0 flex-1 bg-transparent px-3 text-sm tabular-nums outline-none"
+                  style={{ color: 'var(--color-text-primary)' }}
+                  inputMode="decimal"
+                  value={feeRateInput}
+                  onChange={e => { setFeeRateInput(e.target.value); setFeeMsg(null) }}
+                />
+                <span className="px-3 text-sm" style={{ color: 'var(--color-text-tertiary)' }}>%</span>
+              </div>
+            </label>
+            <button
+              className="inline-flex h-9 items-center justify-center gap-2 rounded-md px-4 text-sm font-medium transition-colors duration-[120ms] disabled:opacity-45"
+              style={{ background: 'var(--color-primary)', color: 'var(--color-text-on-brand)' }}
+              disabled={saveFeeSettings.isPending}
+              onClick={saveFee}
+            >
+              {saveFeeSettings.isPending ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
+              保存
+            </button>
+          </div>
+
+          <label className="flex items-start gap-2 text-sm" style={{ color: 'var(--color-text-secondary)' }}>
+            <input
+              className="mt-0.5"
+              type="checkbox"
+              checked={feeMinExempt}
+              onChange={e => { setFeeMinExempt(e.target.checked); setFeeMsg(null) }}
+            />
+            <span>免 5（不启用「总佣金最低 5 元」）</span>
+          </label>
+
+          <p className="text-xs leading-6" style={{ color: 'var(--color-text-tertiary)' }}>
+            「佣金」一栏填写总佣金费率即可，已包含券商净佣金与 A 股规费（证管费 0.002%、经手费 0.00341%、过户费 0.001%），无需另算；印花税按卖出 0.05% 单独计收。
+          </p>
+
+          {feeMsg && (
+            <p className="text-xs" style={{ color: feeMsg.ok ? 'var(--color-success)' : 'var(--color-danger)' }}>
+              {feeMsg.text}
+            </p>
           )}
         </div>
       </section>
@@ -529,11 +633,11 @@ export default function Settings() {
                 <button
                   className="inline-flex items-center gap-2 px-4 h-9 rounded-md text-sm font-medium transition-colors duration-[120ms] disabled:opacity-45 whitespace-nowrap"
                   style={{ background: 'var(--color-primary)', color: 'var(--color-text-on-brand)' }}
-                  disabled={startHistory.isPending || syncLatest.isPending}
+                  disabled={startHistory.isPending || syncRunning}
                   onClick={handleSmartMarketSync}
                 >
-                  {historyStatus?.has_data ? <RefreshCw size={14} className={syncLatest.isPending ? 'animate-spin' : undefined} /> : <Database size={14} />}
-                  {historyStatus?.has_data ? (syncLatest.isPending ? '拉取中…' : '拉取最新行情') : (startHistory.isPending ? '初始化中…' : '初始化全量历史')}
+                  {historyStatus?.has_data ? <RefreshCw size={14} className={syncRunning ? 'animate-spin' : undefined} /> : <Database size={14} />}
+                  {historyStatus?.has_data ? (syncRunning ? '拉取中…' : '拉取最新行情') : (startHistory.isPending ? '初始化中…' : '初始化全量历史')}
                 </button>
               )}
             </div>

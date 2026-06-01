@@ -1,17 +1,33 @@
 from datetime import date
 from decimal import Decimal
 
+import pytest
+
 from app.models.market_cache import MarketDailyBar, StockListItem
-from app.services.market import MarketDataProvider
+from app.services.market import MarketDataProvider, _retry
+from app.services import market_sync
 from app.services.market_sync import (
     MIN_ROWS_PER_SYNCED_DAY,
     _has_complete_full_history,
     _is_trade_date_fully_synced,
+    _run_latest_sync,
     get_full_history_status,
+    get_latest_sync_status,
     sync_index_daily_incremental,
     sync_stock_daily_for_trade_date,
 )
 from app.services.pnl import DEFAULT_BENCHMARKS
+
+
+class _SessionContext:
+    def __init__(self, db):
+        self.db = db
+
+    def __enter__(self):
+        return self.db
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
 
 
 def test_ingest_by_trade_date_stores_full_fields(db, monkeypatch):
@@ -179,3 +195,120 @@ def test_index_incremental_skips_when_all_indexes_are_current(db, monkeypatch):
     index_rows, warnings = sync_index_daily_incremental(db, target)
     assert index_rows == 0
     assert warnings == []
+
+
+def test_retry_fast_fails_on_hourly_rate_limit(monkeypatch):
+    """按小时限频不应进入 62s 退避重试，直接放弃。"""
+    calls = {"n": 0}
+
+    def hourly_limited():
+        calls["n"] += 1
+        raise RuntimeError("抱歉，您访问接口(index_daily)频率超限(1次/小时)")
+
+    slept = {"n": 0}
+    monkeypatch.setattr("app.services.tushare_limiter.sleep_after_rate_limit", lambda e: slept.__setitem__("n", slept["n"] + 1))
+    monkeypatch.setattr("app.services.tushare_limiter.wait_for_slot", lambda api="default": None)
+
+    with pytest.raises(RuntimeError, match="频率超限"):
+        _retry(hourly_limited, api="index_daily")
+
+    assert calls["n"] == 1       # 只调用一次，不重试
+    assert slept["n"] == 0       # 不触发 62s 退避
+
+
+def test_retry_backs_off_on_per_minute_rate_limit(monkeypatch):
+    """每分钟限频应等过当前分钟后重试。"""
+    calls = {"n": 0}
+
+    def minute_limited():
+        calls["n"] += 1
+        raise RuntimeError("抱歉，您访问接口(daily)频率超限(500次/分钟)")
+
+    slept = {"n": 0}
+    monkeypatch.setattr("app.services.tushare_limiter.sleep_after_rate_limit", lambda e: slept.__setitem__("n", slept["n"] + 1))
+    monkeypatch.setattr("app.services.tushare_limiter.wait_for_slot", lambda api="default": None)
+
+    with pytest.raises(RuntimeError, match="频率超限"):
+        _retry(minute_limited, retries=3, api="daily")
+
+    assert calls["n"] == 3       # 重试满 3 次
+    assert slept["n"] == 2       # 前两次失败各退避一次
+
+
+@pytest.mark.parametrize("limit_msg", ["1次/小时", "5次/天"])
+def test_index_incremental_skips_remaining_on_long_period_rate_limit(db, monkeypatch, limit_msg):
+    """index_daily 命中小时/天级限频时，跳过其余基准、只调用一次。"""
+    calls = {"n": 0}
+
+    def limited(self, index_code, start, end):
+        calls["n"] += 1
+        raise RuntimeError(f"访问接口(index_daily)频率超限({limit_msg})")
+
+    monkeypatch.setattr(
+        "app.services.market_sync.MarketDataProvider.ingest_index_daily_range",
+        limited,
+    )
+    monkeypatch.setattr(market_sync.time, "sleep", lambda *_: None)
+
+    total, warnings = sync_index_daily_incremental(db, date(2026, 6, 1))
+
+    assert total == 0
+    assert calls["n"] == 1  # 只试一个基准就跳出
+    assert any("限频" in w for w in warnings)
+
+
+def test_fetch_index_daily_reraises_rate_limit_but_swallows_others(db, monkeypatch):
+    """限频异常需向上抛出（供同步任务跳过其余基准）；其余错误按缺失返回空。"""
+    provider = MarketDataProvider(db)
+    monkeypatch.setattr("tushare.pro_api", lambda *a, **k: object())
+
+    def rate_limited(fn, **kw):
+        raise RuntimeError("访问接口(index_daily)频率超限(1次/小时)")
+
+    monkeypatch.setattr("app.services.market._retry", rate_limited)
+    with pytest.raises(RuntimeError, match="频率超限"):
+        provider._fetch_index_daily("000300.SH", date(2026, 1, 1), date(2026, 6, 1))
+
+    def other_error(fn, **kw):
+        raise RuntimeError("网络抖动")
+
+    monkeypatch.setattr("app.services.market._retry", other_error)
+    assert provider._fetch_index_daily("000300.SH", date(2026, 1, 1), date(2026, 6, 1)) == []
+
+
+def test_latest_sync_status_idle_without_state(db):
+    status = get_latest_sync_status(db)
+    assert status["status"] == "idle"
+    assert status["running"] is False
+
+
+def test_run_latest_sync_records_complete_status(db, monkeypatch):
+    """后台任务跑完后写入 complete 状态与同步结果文案。"""
+    monkeypatch.setattr(market_sync, "SessionLocal", lambda: _SessionContext(db))
+    monkeypatch.setattr(
+        market_sync, "sync_latest",
+        lambda _db: {"ok": True, "message": "已更新至 2026-06-01", "max_date": "2026-06-01"},
+    )
+
+    _run_latest_sync()
+
+    status = get_latest_sync_status(db)
+    assert status["status"] == "complete"
+    assert status["running"] is False
+    assert status["message"] == "已更新至 2026-06-01"
+    assert status["finished_at"] is not None
+
+
+def test_run_latest_sync_records_error_on_failure(db, monkeypatch):
+    monkeypatch.setattr(market_sync, "SessionLocal", lambda: _SessionContext(db))
+
+    def boom(_db):
+        raise RuntimeError("tushare down")
+
+    monkeypatch.setattr(market_sync, "sync_latest", boom)
+
+    _run_latest_sync()
+
+    status = get_latest_sync_status(db)
+    assert status["status"] == "error"
+    assert "tushare down" in (status["message"] or "")

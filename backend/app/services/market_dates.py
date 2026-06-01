@@ -73,8 +73,9 @@ def syncable_market_end(db: Session, now: datetime | None = None) -> tuple[date,
     if is_before_market_data_ready(now):
         prev = previous_trading_day(db, today)
         time_str = now.strftime("%H:%M")
+        ready_str = f"{MARKET_DATA_READY_AT[0]:02d}:{MARKET_DATA_READY_AT[1]:02d}"
         reason = (
-            f"A 股尚未收盘（当前 {time_str}），今日日线暂不可用；"
+            f"今日日线数据尚未就绪（A 股 15:00 收盘，数据约 {ready_str} 可下载，当前 {time_str}）；"
             f"已同步至上一交易日 {prev.isoformat()}"
         )
         return prev, reason
