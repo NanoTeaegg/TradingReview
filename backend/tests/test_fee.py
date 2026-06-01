@@ -1,5 +1,8 @@
 from decimal import Decimal
-from app.services.fee import calc_fee
+
+import pytest
+
+from app.services.fee import calc_fee, normalize_commission_rate
 
 
 def test_buy_sz():
@@ -64,3 +67,18 @@ def test_total_commission_matches_broker_statement():
     # 总佣金 261720 × 0.00008 = 20.9376 + 印花税 130.86 = 151.7976 → 151.80
     fee = calc_fee("sell", "SZ", Decimal("261720"), Decimal("0.00008"))
     assert fee == Decimal("151.80")
+
+
+def test_normalize_commission_rate_rejects_negative():
+    with pytest.raises(ValueError, match="commission_rate"):
+        normalize_commission_rate(Decimal("-0.0001"))
+
+
+def test_normalize_commission_rate_rejects_above_max():
+    with pytest.raises(ValueError, match="commission_rate"):
+        normalize_commission_rate(Decimal("0.0031"))
+
+
+def test_normalize_commission_rate_accepts_bounds():
+    assert normalize_commission_rate(Decimal("0")) == Decimal("0").quantize(Decimal("0.00000001"))
+    assert normalize_commission_rate(Decimal("0.003")) == Decimal("0.003").quantize(Decimal("0.00000001"))
