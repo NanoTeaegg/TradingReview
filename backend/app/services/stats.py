@@ -76,11 +76,9 @@ def get_discipline(db: Session, account_id: Optional[int] = None) -> dict:
 
 def get_turnover(db: Session, account_id: Optional[int] = None) -> list[dict]:
     """Monthly turnover for last 6 months."""
-    from app.services.pnl import get_positions
     today = date.today()
     months = []
     for i in range(5, -1, -1):
-        first = (today.replace(day=1) - timedelta(days=1)).replace(day=1)
         # build proper month offset
         month = (today.month - i - 1) % 12 + 1
         year = today.year + (today.month - i - 2) // 12
@@ -105,7 +103,7 @@ def get_turnover(db: Session, account_id: Optional[int] = None) -> list[dict]:
             monthly_q = monthly_q.filter(Trade.account_id == account_id)
         monthly_volume = monthly_q.with_entities(Trade.amount).all()
 
-        total_amount = sum(Decimal(str(r[0])) for r in monthly_volume)
+        total_amount = sum((Decimal(str(r[0])) for r in monthly_volume), ZERO)
 
         # Month-start holdings value (approximate)
         before_q = db.query(Trade).filter(Trade.trade_date < month_start)
@@ -115,9 +113,8 @@ def get_turnover(db: Session, account_id: Optional[int] = None) -> list[dict]:
         if trades_before:
             lots, _ = run_fifo(trades_before)
             start_value = sum(
-                lot.price * lot.qty
-                for code_lots in lots.values()
-                for lot in code_lots
+                (lot.price * lot.qty for code_lots in lots.values() for lot in code_lots),
+                ZERO,
             )
         else:
             start_value = ZERO
