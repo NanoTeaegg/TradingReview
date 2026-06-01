@@ -42,9 +42,14 @@ def _retry(fn, retries: int = 3, delay: float = 1.0, *, api: str = "default"):
             return fn()
         except Exception as e:
             last_exc = e
-            if "频率超限" in str(e) and i < retries - 1:
-                sleep_after_rate_limit(e)
-                continue
+            msg = str(e)
+            if "频率超限" in msg:
+                # 每分钟限频：等过当前分钟再重试；按小时/天等长周期限频：62s 后必然再超限，
+                # 短时重试无意义，直接放弃（后台任务据此快速收尾，下一周期再补）。
+                if "分钟" in msg and i < retries - 1:
+                    sleep_after_rate_limit(e)
+                    continue
+                break
             if i < retries - 1:
                 time.sleep(delay)
     raise last_exc
@@ -394,6 +399,10 @@ class MarketDataProvider:
             )
         except Exception as e:
             logger.warning(f"TuShare index daily failed: {e}")
+            # 限频异常向上抛出，便于同步任务据此跳过其余基准（避免逐个再等节流间隔）；
+            # 其余错误按缺失处理，返回空不影响整体同步。
+            if "频率超限" in str(e):
+                raise
             return []
 
         if df is None or df.empty:

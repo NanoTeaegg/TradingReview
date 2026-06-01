@@ -30,11 +30,16 @@ MIN_ROWS_PER_SYNCED_DAY = 500
 # 每只股票全量历史起点（沪市开市日；TuShare 自动只返回该股实际存在的数据）
 FULL_HISTORY_START = date(1990, 12, 19)
 FULL_HISTORY_KEY = "full_history"
+LATEST_SYNC_KEY = "latest_sync"
 
 # 后台全量任务的进程内句柄
 _full_history_thread: threading.Thread | None = None
 _full_history_cancel = threading.Event()
 _full_history_lock = threading.Lock()
+
+# 后台「拉取最新行情」任务的进程内句柄
+_latest_sync_thread: threading.Thread | None = None
+_latest_sync_lock = threading.Lock()
 
 
 # ── 工具 ────────────────────────────────────────────────────
@@ -158,9 +163,14 @@ def sync_index_daily_incremental(db: Session, end: date | None = None) -> tuple[
                 total += n
                 logger.info("Synced index %s (%s): %s rows", index_code, name, n)
         except Exception as exc:
-            msg = f"指数 {name} 更新跳过: {exc}"
             logger.warning("Sync index %s failed: %s", index_code, exc)
-            warnings.append(msg)
+            # index_daily 在 120 积分账户为长周期限频（实测「1次/小时」「5次/天」等）：
+            # 62s 节流无法规避，本轮拉不到就跳过其余基准（避免逐个再各等 62s），下一周期再补。
+            msg = str(exc)
+            if "频率超限" in msg and "分钟" not in msg:
+                warnings.append("指数日线已达 TuShare 限频（小时/天级），本次跳过，稍后自动补齐")
+                break
+            warnings.append(f"指数 {name} 更新跳过: {exc}")
         time.sleep(SYNC_PAUSE_SEC)
     return total, warnings
 
@@ -288,26 +298,94 @@ def sync_latest(db: Session) -> dict:
     }
 
 
+# ── 「拉取最新行情」后台任务（避免同步阻塞顶穿前端超时） ──────
+
+def _latest_sync_thread_alive() -> bool:
+    return _latest_sync_thread is not None and _latest_sync_thread.is_alive()
+
+
+def is_latest_sync_running() -> bool:
+    return _latest_sync_thread_alive()
+
+
+def get_latest_sync_status(db: Session) -> dict:
+    """「拉取最新行情」后台任务进度，供前端轮询。"""
+    state = _get_state(db, LATEST_SYNC_KEY)
+    raw_status = state.status if state else "idle"
+    alive = _latest_sync_thread_alive()
+    # running 但线程已死（如服务重启）→ 视为中断，可重新触发
+    status = "interrupted" if (raw_status == "running" and not alive) else raw_status
+
+    min_d = _min_stock_bar_date(db)
+    max_d = _max_stock_bar_date(db)
+    return {
+        "status": status,
+        "running": status == "running",
+        "message": state.message if state else None,
+        "started_at": state.started_at.isoformat() if state and state.started_at else None,
+        "finished_at": state.finished_at.isoformat() if state and state.finished_at else None,
+        "min_date": min_d.isoformat() if min_d else None,
+        "max_date": max_d.isoformat() if max_d else None,
+    }
+
+
+def start_latest_sync() -> dict:
+    """启动后台「拉取最新行情」任务；已在跑则返回当前状态。
+
+    立即返回，HTTP 请求不再随同步阻塞，避免 TuShare 限频 62s 退避顶穿前端超时。
+    """
+    global _latest_sync_thread
+    with _latest_sync_lock:
+        if _latest_sync_thread_alive():
+            with SessionLocal() as db:
+                return get_latest_sync_status(db)
+        with SessionLocal() as db:
+            _set_state(db, status="running", message="正在拉取最新行情…",
+                       mark_started=True, key=LATEST_SYNC_KEY)
+        _latest_sync_thread = threading.Thread(
+            target=_run_latest_sync, name="latest-market-sync", daemon=True
+        )
+        _latest_sync_thread.start()
+    with SessionLocal() as db:
+        return get_latest_sync_status(db)
+
+
+def _run_latest_sync() -> None:
+    with SessionLocal() as db:
+        try:
+            result = sync_latest(db)
+            status = "error" if result.get("ok") is False else "complete"
+            _set_state(db, status=status, message=result.get("message"),
+                       mark_finished=True, key=LATEST_SYNC_KEY)
+        except Exception as exc:
+            logger.exception("Latest market sync run failed")
+            try:
+                _set_state(db, status="error", message=str(exc)[:200],
+                           mark_finished=True, key=LATEST_SYNC_KEY)
+            except Exception:
+                pass
+
+
 # ── 全量历史初始化（后台逐只 + 进度 + 续传 + 取消） ───────────
 
-def _get_state(db: Session) -> MarketSyncState | None:
+def _get_state(db: Session, key: str = FULL_HISTORY_KEY) -> MarketSyncState | None:
     return (
         db.query(MarketSyncState)
-        .filter(MarketSyncState.key == FULL_HISTORY_KEY)
+        .filter(MarketSyncState.key == key)
         .one_or_none()
     )
 
 
 def _set_state(db: Session, *, status: str, current_code: str | None = None,
                message: str | None = None, mark_started: bool = False,
-               mark_finished: bool = False) -> None:
-    state = _get_state(db)
+               mark_finished: bool = False, key: str = FULL_HISTORY_KEY) -> None:
+    state = _get_state(db, key)
     if state is None:
-        state = MarketSyncState(key=FULL_HISTORY_KEY)
+        state = MarketSyncState(key=key)
         db.add(state)
     state.status = status
     state.current_code = current_code
-    state.message = message
+    state.message = message[:200] if message else message
     state.updated_at = datetime.utcnow()
     if mark_started:
         state.started_at = datetime.utcnow()

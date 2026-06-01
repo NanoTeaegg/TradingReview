@@ -1,3 +1,6 @@
+from datetime import date
+from decimal import Decimal
+
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
@@ -7,6 +10,7 @@ from app.api.deps import get_session
 from app.core.db import Base
 from app.main import app
 from app.models.account import Account
+from app.models.trade import Trade
 
 
 def _make_client():
@@ -87,6 +91,53 @@ def test_llm_settings_masks_api_key():
         assert data["has_api_key"] is True
         assert data["api_key_masked"] == "sk-****cdef"
         assert "1234567890" not in str(data)
+    finally:
+        app.dependency_overrides.clear()
+        session.close()
+
+
+def test_fee_settings_are_account_scoped_and_can_recalculate_history():
+    client, session = _make_client()
+    try:
+        session.add(
+            Trade(
+                account_id=2,
+                trade_date=date(2026, 1, 2),
+                seq=0,
+                ts_code="600000.SH",
+                stock_code="600000",
+                stock_name="浦发银行",
+                side="sell",
+                price=Decimal("10"),
+                quantity=10000,
+                amount=Decimal("100000"),
+                fee=Decimal("0"),
+                market="SH",
+            )
+        )
+        session.commit()
+
+        resp = client.get("/api/settings/fee", headers={"X-Account-Id": "2"})
+        assert resp.status_code == 200
+        assert resp.json()["commission_rate"] == "0.00040000"
+        assert resp.json()["commission_min_fee_exempt"] is False
+
+        resp = client.put(
+            "/api/settings/fee",
+            headers={"X-Account-Id": "2"},
+            json={"commission_rate": "0.0002", "commission_min_fee_exempt": True},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["commission_rate"] == "0.00020000"
+        assert data["commission_min_fee_exempt"] is True
+        assert data["recalculated_count"] == 1
+        assert session.get(Account, 1).commission_rate == Decimal("0.00040000")
+        assert session.get(Account, 2).commission_rate == Decimal("0.00020000")
+        assert session.get(Account, 1).commission_min_fee_exempt is False
+        assert session.get(Account, 2).commission_min_fee_exempt is True
+        # 总佣金 100000×万2 = 20（免5、不补足）+ 印花税 50（卖出）= 70
+        assert session.query(Trade).filter(Trade.account_id == 2).one().fee == Decimal("70.0000")
     finally:
         app.dependency_overrides.clear()
         session.close()

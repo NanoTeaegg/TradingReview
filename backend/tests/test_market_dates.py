@@ -22,7 +22,7 @@ def test_syncable_market_end_before_close(db):
     end, reason = syncable_market_end(db, now)
     assert end == date(2026, 5, 29)
     assert reason is not None
-    assert "尚未收盘" in reason
+    assert "数据尚未就绪" in reason
     assert "2026-05-29" in reason
 
 

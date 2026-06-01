@@ -366,6 +366,7 @@ function ReturnTrendCard({ curve, loading, failed }: { curve?: EquityCurve; load
     maxAbs = Math.max(1, Math.ceil(maxAbs * 1.15))
 
     const fmtAxisDate = (d: string) => d.slice(5)
+    const lastDateIndex = view.winDates.length - 1
     return {
       backgroundColor: 'transparent',
       tooltip: {
@@ -375,12 +376,20 @@ function ReturnTrendCard({ curve, loading, failed }: { curve?: EquityCurve; load
         valueFormatter: (v: number | null) => v == null ? '—' : `${v > 0 ? '+' : ''}${v.toFixed(2)}%`,
       },
       legend: { show: false },
-      grid: { left: 0, right: 8, top: 16, bottom: 24, containLabel: true },
+      grid: { left: 0, right: 28, top: 16, bottom: 24, containLabel: true },
       xAxis: {
         type: 'category', data: view.winDates, boundaryGap: false,
         axisLine: { lineStyle: { color: '#f0eee6' } },
         axisTick: { show: false },
-        axisLabel: { color: '#87867f', fontSize: 11, formatter: fmtAxisDate, hideOverlap: true },
+        axisLabel: {
+          color: '#87867f',
+          fontSize: 11,
+          formatter: fmtAxisDate,
+          hideOverlap: false,
+          interval: (index: number) => index === 0 || index === lastDateIndex,
+          showMinLabel: true,
+          showMaxLabel: true,
+        },
       },
       yAxis: {
         type: 'value', min: -maxAbs, max: maxAbs,
@@ -657,7 +666,12 @@ export default function Dashboard() {
                     onMouseLeave={e => activeTrade?.id !== t.id && (e.currentTarget.style.background = 'var(--color-bg-surface)')}
                   >
                     <td className="px-4 tabular-nums" style={{ height: 36, color: 'var(--color-text-secondary)', fontSize: 13 }}>
-                      {formatTradeDate(t.trade_date)}
+                      <div className="flex flex-col">
+                        <span>{formatTradeDate(t.trade_date)}</span>
+                        {t.trade_time && (
+                          <span className="font-mono text-xs" style={{ color: 'var(--color-text-tertiary)' }}>{t.trade_time}</span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-4">
                       <div className="flex flex-col">

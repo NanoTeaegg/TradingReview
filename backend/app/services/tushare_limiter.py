@@ -8,7 +8,8 @@ import time
 _lock = threading.Lock()
 _last_call: dict[str, float] = {}
 
-# 120 积分常见限额：daily 50/min，trade_cal/index_daily 1/min
+# 120 积分常见限额：daily 50/min，trade_cal 1/min；index_daily 实测为 1次/小时，
+# 62s 节流无法规避其小时级限频，命中后由调用方（sync_index_daily_incremental）跳过本轮
 MIN_INTERVAL_SEC: dict[str, float] = {
     "daily": 1.3,
     "trade_cal": 62.0,

@@ -1,8 +1,48 @@
+import time
+
+import pytest
+
 from datetime import date
 from decimal import Decimal
 
 from app.models.market_cache import MarketDailyBar, MarketSentimentSnapshot
 from app.services import sentiment
+
+
+def test_call_with_timeout_returns_value_before_deadline():
+    assert sentiment._call_with_timeout(lambda: 42, 1.0, "fast") == 42
+
+
+def test_call_with_timeout_propagates_inner_error():
+    def boom():
+        raise ValueError("inner")
+
+    with pytest.raises(ValueError, match="inner"):
+        sentiment._call_with_timeout(boom, 1.0, "boom")
+
+
+def test_call_with_timeout_raises_on_hang():
+    with pytest.raises(TimeoutError):
+        sentiment._call_with_timeout(lambda: time.sleep(5), 0.1, "hang")
+
+
+def test_fetch_limit_counts_degrades_to_zero_when_akshare_hangs(monkeypatch):
+    """akshare 涨跌停池挂起时，涨跌停数降级为 0，不拖死调用方。"""
+    import sys
+    import types
+
+    fake_ak = types.ModuleType("akshare")
+    fake_ak.stock_zt_pool_em = lambda date: time.sleep(5)
+    fake_ak.stock_dt_pool_em = lambda date: time.sleep(5)
+    monkeypatch.setitem(sys.modules, "akshare", fake_ak)
+    monkeypatch.setattr(sentiment, "AKSHARE_FETCH_TIMEOUT_SEC", 0.1)
+
+    started = time.monotonic()
+    limit_up, limit_down = sentiment._fetch_limit_counts(date(2026, 6, 1))
+    elapsed = time.monotonic() - started
+
+    assert (limit_up, limit_down) == (0, 0)
+    assert elapsed < 2.0  # 两次 0.1s 超时即放弃，不会等满 10s
 
 
 def test_latest_market_date_uses_friday_on_weekends():

@@ -1,8 +1,17 @@
+from decimal import Decimal
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_session
+from app.api.deps import get_current_account_id, get_session
+from app.services.fee import (
+    FeeConfig,
+    get_fee_config,
+    normalize_commission_rate,
+    recalculate_trade_fees,
+    save_fee_config,
+)
 from app.services.llm import (
     LLMConfig,
     get_llm_config,
@@ -29,6 +38,11 @@ class LLMSettings(BaseModel):
     api_key: str | None = None
 
 
+class FeeSettings(BaseModel):
+    commission_rate: Decimal
+    commission_min_fee_exempt: bool = False
+
+
 def _serialize_llm(config: LLMConfig) -> dict:
     return {
         "provider": config.provider,
@@ -37,6 +51,20 @@ def _serialize_llm(config: LLMConfig) -> dict:
         "api_key_masked": mask_api_key(config.api_key),
         "has_api_key": bool(config.api_key),
     }
+
+
+def _serialize_fee(config: FeeConfig, recalculated_count: int | None = None) -> dict:
+    payload = {
+        "commission_rate": str(config.commission_rate),
+        "commission_min_fee_exempt": config.commission_min_fee_exempt,
+        "regulatory_fee_rate": str(config.regulatory_fee_rate),
+        "exchange_handling_fee_rate": str(config.exchange_handling_fee_rate),
+        "transfer_fee_rate": str(config.transfer_fee_rate),
+        "stamp_tax_rate": str(config.stamp_tax_rate),
+    }
+    if recalculated_count is not None:
+        payload["recalculated_count"] = recalculated_count
+    return payload
 
 
 @router.get("/settings/llm")
@@ -67,6 +95,41 @@ def update_llm_settings(body: LLMSettings, db: Session = Depends(get_session)):
 @router.post("/settings/llm/ping")
 async def ping_llm_settings(db: Session = Depends(get_session)):
     return await ping_llm(db)
+
+
+@router.get("/settings/fee")
+def get_fee_settings(
+    db: Session = Depends(get_session),
+    account_id: int = Depends(get_current_account_id),
+):
+    try:
+        return _serialize_fee(get_fee_config(db, account_id))
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.put("/settings/fee")
+def update_fee_settings(
+    body: FeeSettings,
+    db: Session = Depends(get_session),
+    account_id: int = Depends(get_current_account_id),
+):
+    try:
+        commission_rate = normalize_commission_rate(body.commission_rate)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    try:
+        config = save_fee_config(
+            db,
+            account_id,
+            commission_rate,
+            body.commission_min_fee_exempt,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    recalculated_count = recalculate_trade_fees(db, account_id, config)
+    return _serialize_fee(config, recalculated_count=recalculated_count)
 
 
 @router.get("/settings/ollama")

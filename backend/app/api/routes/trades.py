@@ -22,7 +22,7 @@ def list_trades(
     account_id: int = Depends(get_current_account_id),
 ):
     q = db.query(Trade).filter(Trade.account_id == account_id).order_by(
-        Trade.trade_date.desc(), Trade.seq.desc(), Trade.id.desc()
+        Trade.trade_date.desc(), Trade.trade_time.desc(), Trade.seq.desc(), Trade.id.desc()
     )
     if stock:
         q = q.filter(or_(Trade.stock_code.like(f"{stock}%"), Trade.stock_name.like(f"%{stock}%")))
@@ -47,6 +47,7 @@ def list_trades(
         {
             "id": t.id,
             "trade_date": t.trade_date.strftime("%Y%m%d"),
+            "trade_time": t.trade_time,
             "stock_code": t.stock_code,
             "stock_name": t.stock_name,
             "ts_code": t.ts_code,

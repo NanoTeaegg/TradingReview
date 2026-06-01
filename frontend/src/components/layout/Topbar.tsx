@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { Link, NavLink } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
+import type { AxiosError } from 'axios'
 import {
   Upload,
   History,
@@ -34,6 +35,12 @@ type UploadState =
   | { type: 'success'; filename: string; success: number; skipped: number; failed: number }
   | { type: 'duplicate'; filename: string; importedAt: string }
   | { type: 'error'; message: string }
+
+function getUploadErrorMessage(error: unknown): string {
+  const axiosError = error as AxiosError<{ detail?: string }>
+  if (axiosError.response?.data?.detail) return axiosError.response.data.detail
+  return error instanceof Error ? error.message : '导入失败，请检查文件内容'
+}
 
 const navItems: { to: string; label: string; end?: boolean }[] = [
   { to: '/', label: '交易总览', end: true },
@@ -110,8 +117,7 @@ export default function Topbar() {
         })
       },
       onError: (error: unknown) => {
-        const message = error instanceof Error ? error.message : '导入失败，请检查文件内容'
-        setUploadState({ type: 'error', message })
+        setUploadState({ type: 'error', message: getUploadErrorMessage(error) })
       },
     })
     e.target.value = ''
