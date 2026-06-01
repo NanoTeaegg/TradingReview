@@ -141,3 +141,18 @@ def test_fee_settings_are_account_scoped_and_can_recalculate_history():
     finally:
         app.dependency_overrides.clear()
         session.close()
+
+
+def test_fee_settings_rejects_commission_rate_above_max():
+    client, session = _make_client()
+    try:
+        resp = client.put(
+            "/api/settings/fee",
+            headers={"X-Account-Id": "1"},
+            json={"commission_rate": "0.0031", "commission_min_fee_exempt": False},
+        )
+        assert resp.status_code == 400
+        assert "commission_rate" in resp.json()["detail"]
+    finally:
+        app.dependency_overrides.clear()
+        session.close()

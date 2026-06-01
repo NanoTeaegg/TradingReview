@@ -19,9 +19,8 @@ export function formatExactAmount(value: number | string | null | undefined): st
   const [intPartRaw, decimalPartRaw = ''] = unsigned.split('.')
   const intPart = (intPartRaw || '0').replace(/^0+(?=\d)/, '')
   const formattedInt = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',')
-  const trimmedDecimal = decimalPartRaw.length > 2
-    ? decimalPartRaw.replace(/0+$/, '').padEnd(2, '0')
-    : decimalPartRaw.padEnd(2, '0')
+  // 始终展示两位小数：先去尾零，再截到两位并补足，避免出现 ¥1.234 这类三位小数
+  const trimmedDecimal = decimalPartRaw.replace(/0+$/, '').slice(0, 2).padEnd(2, '0')
 
   return `${sign}¥${formattedInt}.${trimmedDecimal}`
 }
