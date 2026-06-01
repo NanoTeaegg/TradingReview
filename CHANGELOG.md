@@ -2,6 +2,24 @@
 
 本文件记录各版本的显著变更，格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](docs/版本管理规范.md)。
 
+## [v0.2.1] - 2026-06-01
+
+补丁版：处理 v0.2.0 复审反馈，修复金额展示小数位、明确文档公式并补充手续费校验测试。
+
+### Fixed
+
+- 资金记录金额展示（`formatExactAmount`）始终保留两位小数，修复尾零裁剪后可能出现 `¥1.234` 这类三位小数
+
+### Docs
+
+- PRD 3.10 / 技术方案 9.5.1 / 后端实现计划：周换手率公式补全括号，明确为 `(本周买入金额 + 卖出金额) / 本周平均持仓市值`
+
+### Tests
+
+- 新增 `normalize_commission_rate` 负值/超上限（0.003）校验用例，以及 `PUT /api/settings/fee` 佣金率超限返回 400 的接口用例
+
+---
+
 ## [v0.2.0] - 2026-06-01
 
 复盘统计、行情同步与交易导入增强版：交易复盘新增周维度趋势与指标说明，「拉取最新行情」重构为后台任务彻底解决卡死/超时，新增按账本手续费设置与多券商导入适配。
@@ -78,6 +96,7 @@
 
 ---
 
+[v0.2.1]: https://github.com/NanoTeaegg/TradingReview/releases/tag/v0.2.1
 [v0.2.0]: https://github.com/NanoTeaegg/TradingReview/releases/tag/v0.2.0
 [v0.1.1]: https://github.com/NanoTeaegg/TradingReview/releases/tag/v0.1.1
 [v0.1.0]: https://github.com/NanoTeaegg/TradingReview/releases/tag/v0.1.0
