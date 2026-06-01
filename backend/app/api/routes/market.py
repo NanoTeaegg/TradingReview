@@ -1,6 +1,6 @@
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_session
@@ -8,6 +8,7 @@ from app.services.market import MarketDataProvider
 from app.services.market_sync import (
     cancel_full_history,
     get_full_history_status,
+    is_full_history_running,
     start_full_history,
     sync_latest,
 )
@@ -37,7 +38,9 @@ def sentiment(db: Session = Depends(get_session)):
 
 @router.post("/market/sync")
 def sync_latest_market(db: Session = Depends(get_session)):
-    """「拉取最新行情」：按交易日 daily(trade_date) 全市场增量（DB 最新日期 → 今天）。"""
+    """「拉取最新行情」：按交易日 daily(trade_date) 全市场增量（DB 最新日期 → 可同步目标日）。"""
+    if is_full_history_running():
+        raise HTTPException(status_code=409, detail="全量历史同步进行中，请稍后再试「拉取最新行情」")
     return sync_latest(db)
 
 

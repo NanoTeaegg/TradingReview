@@ -8,11 +8,17 @@ export function formatAmount(value: number | null | undefined): string {
   return `${sign}¥${abs.toFixed(2)}`
 }
 
-/** Format percent with sign */
+/** Format percent without an explicit positive sign. Sign-aware wrappers add '+' where needed. */
 export function formatPct(value: number | null | undefined): string {
   if (value == null) return '—'
+  return `${(value * 100).toFixed(2)}%`
+}
+
+/** Format percent with a positive sign for standalone, non-PnlNumber usage. */
+export function formatSignedPct(value: number | null | undefined): string {
+  if (value == null) return '—'
   const sign = value > 0 ? '+' : ''
-  return `${sign}${(value * 100).toFixed(2)}%`
+  return `${sign}${formatPct(value)}`
 }
 
 /** Format a PnL number with sign and color class hint */

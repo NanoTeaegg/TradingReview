@@ -8,7 +8,9 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.db import SessionLocal
-from app.models.market_cache import MarketSentimentSnapshot
+from app.models.market_cache import MarketDailyBar, MarketSentimentSnapshot
+from app.services.market import STOCK
+from app.services.market_dates import current_market_date
 
 logger = logging.getLogger("tradingreview.sentiment")
 
@@ -18,12 +20,23 @@ STARTUP_BACKFILL_DAYS = 30
 
 
 def get_market_sentiment(db: Session) -> dict:
-    """Return the latest target sentiment snapshot, filling it when missing."""
-    target_date = latest_market_date()
-    snapshot = _get_snapshot(db, target_date)
+    """Return the latest local sentiment snapshot without fetching remote data."""
+    current_date = current_market_date(db)
+    snapshot = _latest_snapshot(db)
     if snapshot is None:
-        snapshot = fetch_and_store_market_sentiment(db, target_date)
-    return _snapshot_to_dict(snapshot)
+        payload = _empty_sentiment(current_date, "暂无本地盘面数据，请先在设置里拉取最新数据")
+        payload["update_available"] = True
+        payload["update_target_date"] = current_date.isoformat()
+        return _serialize_payload(payload)
+
+    payload = _snapshot_to_dict(snapshot)
+    local_date = _local_market_date(db)
+    if local_date < current_date:
+        local_text = local_date.isoformat() if local_date != date.min else "—"
+        payload["note"] = f"本地行情最新至 {local_text}，最新交易日 {current_date.isoformat()} 可在设置里拉取最新数据"
+        payload["update_available"] = True
+        payload["update_target_date"] = current_date.isoformat()
+    return payload
 
 
 def latest_market_date(today: date | None = None) -> date:
@@ -255,8 +268,36 @@ def _get_snapshot(db: Session, trade_date: date) -> MarketSentimentSnapshot | No
     )
 
 
+def _latest_snapshot(db: Session) -> MarketSentimentSnapshot | None:
+    return (
+        db.query(MarketSentimentSnapshot)
+        .order_by(MarketSentimentSnapshot.trade_date.desc())
+        .first()
+    )
+
+
+def _local_market_date(db: Session) -> date:
+    bar_date = (
+        db.query(MarketDailyBar.trade_date)
+        .filter(MarketDailyBar.instrument_type == STOCK)
+        .order_by(MarketDailyBar.trade_date.desc())
+        .limit(1)
+        .scalar()
+    )
+    snapshot = _latest_snapshot(db)
+    dates = [d for d in (bar_date, snapshot.trade_date if snapshot else None) if d is not None]
+    return min(dates) if dates else date.min
+
+
 def _has_any_snapshot(db: Session) -> bool:
     return db.query(MarketSentimentSnapshot.id).first() is not None
+
+
+def _serialize_payload(payload: dict) -> dict:
+    return {
+        **payload,
+        "total_volume_billion": float(payload["total_volume_billion"]),
+    }
 
 
 def _snapshot_to_dict(snapshot: MarketSentimentSnapshot) -> dict:

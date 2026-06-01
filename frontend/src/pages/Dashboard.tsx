@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import ReactECharts from 'echarts-for-react'
 import { Plus, Pencil, Bot, X, Star, Check, Loader2, ChevronLeft, ChevronRight, SlidersHorizontal } from 'lucide-react'
 import PnlNumber from '@/components/shared/PnlNumber'
-import { formatAmount, formatPct, formatTradeDate } from '@/lib/format'
+import { formatAmount, formatPct, formatSignedPct, formatTradeDate } from '@/lib/format'
 import {
   useTrades, useSummary, useEquityCurve, useTags,
   useCreateIntent, useSaveIntent,
@@ -480,7 +480,7 @@ function ReturnTrendCard({ curve, loading, failed }: { curve?: EquityCurve; load
           {view ? (
             <span className="text-2xl font-semibold tabular-nums"
               style={{ color: view.rate > 0 ? 'var(--color-profit)' : view.rate < 0 ? 'var(--color-loss)' : 'var(--color-text-primary)' }}>
-              {formatPct(view.rate)}
+              {formatSignedPct(view.rate)}
             </span>
           ) : <span className="text-2xl font-semibold" style={{ color: 'var(--color-text-tertiary)' }}>—</span>}
         </div>
@@ -511,7 +511,7 @@ function ReturnTrendCard({ curve, loading, failed }: { curve?: EquityCurve; load
                 </span>
                 <span className="text-sm font-medium tabular-nums"
                   style={{ color: b.ret == null ? 'var(--color-text-tertiary)' : b.ret > 0 ? 'var(--color-profit)' : b.ret < 0 ? 'var(--color-loss)' : 'var(--color-text-secondary)' }}>
-                  {b.ret == null ? '—' : formatPct(b.ret)}
+                  {b.ret == null ? '—' : formatSignedPct(b.ret)}
                 </span>
               </button>
             )

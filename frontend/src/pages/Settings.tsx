@@ -113,9 +113,35 @@ export default function Settings() {
   function handleSyncLatest() {
     setMarketMsg(null)
     syncLatest.mutate(undefined, {
-      onSuccess: (res) => setMarketMsg({ ok: true, text: `已更新到 ${res.max_date ?? res.end}` }),
-      onError: () => setMarketMsg({ ok: false, text: '拉取失败，请稍后重试' }),
+      onSuccess: (res) => {
+        const text = res.message ?? (res.max_date ? `已更新到 ${res.max_date}` : `已更新到 ${res.end}`)
+        setMarketMsg({ ok: res.ok !== false, text })
+      },
+      onError: (err) => {
+        const timeout = err instanceof Error && 'code' in err && (err as { code?: string }).code === 'ECONNABORTED'
+        if (timeout) {
+          setMarketMsg({ ok: false, text: '拉取超时（超过 2 分钟），后台可能仍在同步，请稍后刷新查看本地日线区间' })
+          return
+        }
+        const serverDetail = (
+          typeof err === 'object' &&
+          err !== null &&
+          'response' in err &&
+          typeof (err as { response?: { data?: { detail?: string } } }).response?.data?.detail === 'string'
+        )
+          ? (err as { response: { data: { detail: string } } }).response.data.detail
+          : null
+        setMarketMsg({ ok: false, text: serverDetail ?? '拉取失败，请稍后重试' })
+      },
     })
+  }
+  function handleSmartMarketSync() {
+    if (running) return
+    if (historyStatus?.has_data) {
+      handleSyncLatest()
+      return
+    }
+    handleStartHistory()
   }
 
   function switchAccount(accountId: number) {
@@ -455,16 +481,14 @@ export default function Settings() {
           <div className="grid grid-cols-2 gap-y-1.5 gap-x-6 text-xs">
             <span style={{ color: 'var(--color-text-tertiary)' }}>本地日线区间</span>
             <span className="tabular-nums text-right" style={{ color: 'var(--color-text-primary)' }}>
-              {historyStatus?.min_date ? `${historyStatus.min_date} ~ ${historyStatus.max_date}` : '—'}
+              {historyStatus?.min_date
+                ? `${historyStatus.min_date} ~ ${historyStatus.max_date}（最新 ${historyStatus.max_date}）`
+                : '—'}
             </span>
             <span style={{ color: 'var(--color-text-tertiary)' }}>股票数量 / 已完成</span>
             <span className="tabular-nums text-right" style={{ color: 'var(--color-text-primary)' }}>
               {total > 0 ? `${done.toLocaleString()} / ${total.toLocaleString()}` : '—'}
               {(historyStatus?.failed ?? 0) > 0 ? `（失败 ${historyStatus?.failed}）` : ''}
-            </span>
-            <span style={{ color: 'var(--color-text-tertiary)' }}>日线记录</span>
-            <span className="tabular-nums text-right" style={{ color: 'var(--color-text-primary)' }}>
-              {(historyStatus?.bar_count ?? 0).toLocaleString()}
             </span>
           </div>
 
@@ -481,12 +505,13 @@ export default function Settings() {
             </div>
           )}
 
-          {/* 初始化 / 修复全量历史 */}
+          {/* 智能同步 */}
           <div className="flex items-start justify-between gap-4 pt-1" style={{ borderTop: '1px solid var(--color-border-subtle)' }}>
             <div className="flex flex-col gap-1 pt-3">
-              <span className="text-sm font-medium" style={{ color: 'var(--color-text-primary)' }}>初始化 / 修复全量历史</span>
+              <span className="text-sm font-medium" style={{ color: 'var(--color-text-primary)' }}>行情同步</span>
               <span className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
-                按股票代码逐只补齐 23 年历史日线，后台运行可断点续传；首次使用或发现缺口时执行。
+                无全量历史时自动执行初始化（按股票补齐 23 年）；已有全量后自动执行按交易日增量（`daily(trade_date)`）。
+                未收盘时自动同步至上一交易日。
                 {historyStatus?.status === 'interrupted' ? '（上次中断，可点击继续）' : ''}
               </span>
             </div>
@@ -504,33 +529,14 @@ export default function Settings() {
                 <button
                   className="inline-flex items-center gap-2 px-4 h-9 rounded-md text-sm font-medium transition-colors duration-[120ms] disabled:opacity-45 whitespace-nowrap"
                   style={{ background: 'var(--color-primary)', color: 'var(--color-text-on-brand)' }}
-                  disabled={startHistory.isPending}
-                  onClick={handleStartHistory}
+                  disabled={startHistory.isPending || syncLatest.isPending}
+                  onClick={handleSmartMarketSync}
                 >
-                  <Database size={14} />
-                  {historyStatus?.has_data ? '修复全量历史' : '初始化全量历史'}
+                  {historyStatus?.has_data ? <RefreshCw size={14} className={syncLatest.isPending ? 'animate-spin' : undefined} /> : <Database size={14} />}
+                  {historyStatus?.has_data ? (syncLatest.isPending ? '拉取中…' : '拉取最新行情') : (startHistory.isPending ? '初始化中…' : '初始化全量历史')}
                 </button>
               )}
             </div>
-          </div>
-
-          {/* 拉取最新行情 */}
-          <div className="flex items-start justify-between gap-4 pt-1" style={{ borderTop: '1px solid var(--color-border-subtle)' }}>
-            <div className="flex flex-col gap-1 pt-3">
-              <span className="text-sm font-medium" style={{ color: 'var(--color-text-primary)' }}>拉取最新行情</span>
-              <span className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
-                按最新交易日拉取全市场日线（DB 最新日期 → 今天），适合每天收盘后更新。
-              </span>
-            </div>
-            <button
-              className="inline-flex items-center gap-2 px-4 h-9 rounded-md text-sm font-medium transition-colors duration-[120ms] disabled:opacity-45 whitespace-nowrap mt-3"
-              style={{ background: 'var(--color-bg-surface-selected)', color: 'var(--color-text-primary)', border: '1px solid var(--color-border-default)' }}
-              disabled={syncLatest.isPending || running}
-              onClick={handleSyncLatest}
-            >
-              <RefreshCw size={14} className={syncLatest.isPending ? 'animate-spin' : undefined} />
-              {syncLatest.isPending ? '拉取中…' : '拉取最新行情'}
-            </button>
           </div>
 
           {marketMsg && (

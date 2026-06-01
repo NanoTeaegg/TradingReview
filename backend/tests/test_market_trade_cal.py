@@ -90,7 +90,7 @@ def test_seed_calendar_from_market_daily_bars_without_tushare(db, monkeypatch):
     assert date(2026, 5, 28) in stored
 
 
-def test_sync_trade_calendar_persists_remote_days(db, monkeypatch):
+def test_ingest_trade_calendar_range_persists_remote_days(db, monkeypatch):
     start = date(2026, 4, 1)
     end = date(2026, 4, 10)
     # 含休市日（is_open=0）与 pretrade_date，对齐 trade_cal 全字段输出
@@ -105,7 +105,7 @@ def test_sync_trade_calendar_persists_remote_days(db, monkeypatch):
     provider = MarketDataProvider(db)
     monkeypatch.setattr(provider, "_fetch_trade_cal_tushare", lambda *a, **k: remote)
 
-    provider.ensure_trade_calendar(start, end)
+    provider.ingest_trade_calendar_range(start, end)
 
     # 交易日列表只含 is_open=1
     stored = provider._load_trade_cal_from_db(start, end, "SSE")

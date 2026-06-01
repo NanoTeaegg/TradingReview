@@ -1,7 +1,7 @@
 from datetime import date
 from decimal import Decimal
 
-from app.models.market_cache import MarketSentimentSnapshot
+from app.models.market_cache import MarketDailyBar, MarketSentimentSnapshot
 from app.services import sentiment
 
 
@@ -28,7 +28,7 @@ def test_get_market_sentiment_returns_cached_snapshot(db, monkeypatch):
     )
     db.commit()
 
-    monkeypatch.setattr(sentiment, "latest_market_date", lambda today=None: date(2026, 5, 29))
+    monkeypatch.setattr(sentiment, "current_market_date", lambda db, now=None: date(2026, 5, 29))
     monkeypatch.setattr(
         sentiment,
         "_fetch_sentiment_payload",
@@ -42,56 +42,99 @@ def test_get_market_sentiment_returns_cached_snapshot(db, monkeypatch):
     assert result["total_volume_billion"] == 9288.5
 
 
-def test_get_market_sentiment_fetches_and_stores_missing_snapshot(db, monkeypatch):
-    monkeypatch.setattr(sentiment, "latest_market_date", lambda today=None: date(2026, 5, 29))
+def test_get_market_sentiment_uses_latest_local_snapshot(db, monkeypatch):
+    db.add(
+        MarketSentimentSnapshot(
+            trade_date=date(2026, 5, 28),
+            is_trading_day=True,
+            up_count=50,
+            down_count=40,
+            flat_count=10,
+            limit_up=1,
+            limit_down=0,
+            total_volume_billion=Decimal("100.00"),
+            sentiment="neutral",
+            source="test",
+        )
+    )
+    db.add(
+        MarketSentimentSnapshot(
+            trade_date=date(2026, 5, 29),
+            is_trading_day=True,
+            up_count=100,
+            down_count=80,
+            flat_count=20,
+            limit_up=3,
+            limit_down=1,
+            total_volume_billion=Decimal("1234.56"),
+            sentiment="neutral",
+            source="test",
+        )
+    )
+    db.commit()
+
+    monkeypatch.setattr(sentiment, "current_market_date", lambda db, now=None: date(2026, 5, 29))
     monkeypatch.setattr(
         sentiment,
         "_fetch_sentiment_payload",
-        lambda trade_date: {
-            "date": trade_date.isoformat(),
-            "is_trading_day": True,
-            "up_count": 100,
-            "down_count": 80,
-            "flat_count": 20,
-            "limit_up": 3,
-            "limit_down": 1,
-            "total_volume_billion": Decimal("1234.56"),
-            "sentiment": "neutral",
-            "source": "test",
-        },
+        lambda trade_date: (_ for _ in ()).throw(AssertionError("should not fetch from read path")),
     )
 
     result = sentiment.get_market_sentiment(db)
 
     assert result["date"] == "2026-05-29"
     assert result["up_count"] == 100
-    assert db.query(MarketSentimentSnapshot).filter_by(trade_date=date(2026, 5, 29)).count() == 1
 
 
-def test_get_market_sentiment_does_not_store_failed_fetch(db, monkeypatch):
-    monkeypatch.setattr(sentiment, "latest_market_date", lambda today=None: date(2026, 5, 29))
+def test_get_market_sentiment_returns_empty_local_payload(db, monkeypatch):
+    monkeypatch.setattr(sentiment, "current_market_date", lambda db, now=None: date(2026, 5, 29))
     monkeypatch.setattr(
         sentiment,
         "_fetch_sentiment_payload",
-        lambda trade_date: {
-            "date": trade_date.isoformat(),
-            "is_trading_day": False,
-            "up_count": 0,
-            "down_count": 0,
-            "flat_count": 0,
-            "limit_up": 0,
-            "limit_down": 0,
-            "total_volume_billion": Decimal("0.00"),
-            "sentiment": "neutral",
-            "source": "none",
-            "note": "数据获取失败",
-        },
+        lambda trade_date: (_ for _ in ()).throw(AssertionError("should not fetch from read path")),
     )
 
     result = sentiment.get_market_sentiment(db)
 
-    assert result["note"] == "数据获取失败"
+    assert result["date"] == "2026-05-29"
+    assert result["update_available"] is True
+    assert "暂无本地盘面数据" in result["note"]
     assert db.query(MarketSentimentSnapshot).filter_by(trade_date=date(2026, 5, 29)).count() == 0
+
+
+def test_get_market_sentiment_marks_update_available_for_new_trade_date(db, monkeypatch):
+    db.add(
+        MarketSentimentSnapshot(
+            trade_date=date(2026, 5, 29),
+            is_trading_day=True,
+            up_count=2500,
+            down_count=1700,
+            flat_count=200,
+            limit_up=60,
+            limit_down=15,
+            total_volume_billion=Decimal("10000.00"),
+            sentiment="bullish",
+            source="tushare",
+        )
+    )
+    db.add(
+        MarketDailyBar(
+            instrument_type="stock",
+            ts_code="000001.SZ",
+            trade_date=date(2026, 5, 29),
+            close=Decimal("10"),
+            source="test",
+        )
+    )
+    db.commit()
+
+    monkeypatch.setattr(sentiment, "current_market_date", lambda db, now=None: date(2026, 6, 1))
+    result = sentiment.get_market_sentiment(db)
+    assert result["date"] == "2026-05-29"
+    assert result["is_trading_day"] is True
+    assert result["update_available"] is True
+    assert result["update_target_date"] == "2026-06-01"
+    assert "拉取最新数据" in (result.get("note") or "")
 
 
 class _SessionContext:

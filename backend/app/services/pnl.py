@@ -8,14 +8,25 @@ from typing import Optional
 from sqlalchemy.orm import Session
 
 from app.models.cash_flow import CashFlow
+from app.models.market_cache import MarketDailyBar
 from app.models.trade import Trade
-from app.services.market import MarketDataProvider
+from app.services.market import STOCK, MarketDataProvider
 from app.services.sentiment import latest_market_date
 
 
 Q4 = Decimal("0.0001")
 Q2 = Decimal("0.01")
 ZERO = Decimal("0")
+
+
+def _latest_local_stock_bar_date(db: Session) -> date | None:
+    return (
+        db.query(MarketDailyBar.trade_date)
+        .filter(MarketDailyBar.instrument_type == STOCK)
+        .order_by(MarketDailyBar.trade_date.desc())
+        .limit(1)
+        .scalar()
+    )
 
 
 @dataclass
@@ -249,7 +260,7 @@ def get_positions(db: Session, account_id: Optional[int] = None) -> list[dict]:
     lots, _ = run_fifo(trades)
     net_invested = _net_invested_by_code(trades)
     as_of_date = trades[-1].trade_date if trades else latest_market_date()
-    price_date = latest_market_date()
+    price_date = _latest_local_stock_bar_date(db) or latest_market_date()
 
     provider = MarketDataProvider(db)
     ts_codes = list({
