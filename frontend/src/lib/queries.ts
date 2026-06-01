@@ -79,6 +79,8 @@ export interface EquityCurve {
 export interface Sentiment {
   date: string
   is_trading_day: boolean
+  update_available?: boolean
+  update_target_date?: string
   up_count: number
   down_count: number
   flat_count: number
@@ -351,12 +353,18 @@ export function useSentiment() {
 
 export interface MarketSyncResult {
   ok: boolean
+  status?: 'success' | 'skipped_today' | 'up_to_date' | 'partial'
+  message?: string
+  warnings?: string[]
+  skipped_today?: boolean
+  skip_reason?: string | null
   start: string
   end: string
-  calendar_days?: number
+  target_end?: string
   synced_days: number
   index_rows: number
-  max_date?: string
+  min_date?: string | null
+  max_date?: string | null
 }
 
 export type FullHistoryStatusValue =
@@ -373,7 +381,6 @@ export interface FullHistoryStatus {
   message: string | null
   min_date: string | null
   max_date: string | null
-  bar_count: number
 }
 
 /** 行情数据落库后，刷新所有依赖行情的视图。 */
@@ -389,7 +396,7 @@ function invalidateMarketDependentQueries(qc: ReturnType<typeof useQueryClient>)
 export function useSyncLatestMarket() {
   const qc = useQueryClient()
   return useMutation<MarketSyncResult>({
-    mutationFn: () => api.post('/api/market/sync').then(r => r.data),
+    mutationFn: () => api.post('/api/market/sync', {}, { timeout: 120_000 }).then(r => r.data),
     onSuccess: () => {
       invalidateMarketDependentQueries(qc)
       qc.invalidateQueries({ queryKey: ['market-history'] })

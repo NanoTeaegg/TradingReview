@@ -9,6 +9,7 @@ from app.core.logging import setup_logging
 from app.api.routes import (
     accounts, imports, trades, positions, intents, tags, stats, market, reviews, rules, cash_flows, settings as settings_router
 )
+from app.services.market_sync import ensure_trade_calendar_bootstrap
 from app.services.sentiment import ensure_startup_market_sentiment_snapshot, run_market_sentiment_scheduler
 
 
@@ -16,15 +17,17 @@ from app.services.sentiment import ensure_startup_market_sentiment_snapshot, run
 async def lifespan(app: FastAPI):
     setup_logging()
     stop_event = asyncio.Event()
-    # 行情数据不在启动时自动拉取，改为页面按钮触发（首页「拉取最新」/设置「全量历史」）。
+    # 行情日线仍由页面按钮触发；启动阶段只在本地交易日历为空时做一次 trade_cal 初始化。
     startup_task = asyncio.create_task(asyncio.to_thread(ensure_startup_market_sentiment_snapshot))
+    calendar_bootstrap_task = asyncio.create_task(asyncio.to_thread(ensure_trade_calendar_bootstrap))
     scheduler_task = asyncio.create_task(run_market_sentiment_scheduler(stop_event))
     app.state.market_sentiment_startup_task = startup_task
+    app.state.market_calendar_bootstrap_task = calendar_bootstrap_task
     app.state.market_sentiment_scheduler_task = scheduler_task
     yield
     stop_event.set()
     scheduler_task.cancel()
-    for task in (startup_task, scheduler_task):
+    for task in (startup_task, calendar_bootstrap_task, scheduler_task):
         if not task.done():
             task.cancel()
         try:

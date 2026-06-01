@@ -32,13 +32,19 @@ def _init_tushare():
         logger.warning(f"TuShare init failed: {e}")
 
 
-def _retry(fn, retries: int = 3, delay: float = 1.0):
+def _retry(fn, retries: int = 3, delay: float = 1.0, *, api: str = "default"):
+    from app.services.tushare_limiter import sleep_after_rate_limit, wait_for_slot
+
     last_exc = None
     for i in range(retries):
         try:
+            wait_for_slot(api)
             return fn()
         except Exception as e:
             last_exc = e
+            if "频率超限" in str(e) and i < retries - 1:
+                sleep_after_rate_limit(e)
+                continue
             if i < retries - 1:
                 time.sleep(delay)
     raise last_exc
@@ -155,7 +161,7 @@ class MarketDataProvider:
             import tushare as ts
 
             pro = ts.pro_api()
-            df = _retry(lambda: pro.daily(trade_date=trade_date.strftime("%Y%m%d")))
+            df = _retry(lambda: pro.daily(trade_date=trade_date.strftime("%Y%m%d")), api="daily")
         except Exception as e:
             logger.warning("TuShare daily by trade_date %s failed: %s", trade_date, e)
             return 0
@@ -201,7 +207,7 @@ class MarketDataProvider:
                 exchange="",
                 list_status=list_status,
                 fields="ts_code,symbol,name,list_date,list_status",
-            ))
+            ), api="stock_basic")
         except Exception as e:
             logger.warning("TuShare stock_basic failed: %s", e)
             return 0
@@ -248,7 +254,7 @@ class MarketDataProvider:
                 ts_code=ts_code,
                 start_date=start.strftime("%Y%m%d"),
                 end_date=end.strftime("%Y%m%d"),
-            ))
+            ), api="daily")
         except Exception as e:
             logger.warning("TuShare daily history for %s failed: %s", ts_code, e)
             raise
@@ -378,11 +384,14 @@ class MarketDataProvider:
         try:
             import tushare as ts
             pro = ts.pro_api()
-            df = _retry(lambda: pro.index_daily(
-                ts_code=index_code,
-                start_date=start.strftime("%Y%m%d"),
-                end_date=end.strftime("%Y%m%d"),
-            ))
+            df = _retry(
+                lambda: pro.index_daily(
+                    ts_code=index_code,
+                    start_date=start.strftime("%Y%m%d"),
+                    end_date=end.strftime("%Y%m%d"),
+                ),
+                api="index_daily",
+            )
         except Exception as e:
             logger.warning(f"TuShare index daily failed: {e}")
             return []
@@ -417,17 +426,9 @@ class MarketDataProvider:
         end: date,
         exchange: str = "SSE",
     ) -> None:
-        """将 [start, end] 交易日历写入本地；已覆盖则跳过外部请求。"""
-        if self._trade_cal_range_cached(start, end, exchange):
-            return
-
+        """确保本地已有 [start, end] 交易日历数据（仅本地补种，不触发远程）。"""
         with _cal_sync_lock:
-            if self._trade_cal_range_cached(start, end, exchange):
-                return
             self._seed_trade_calendar_from_local(start, end, exchange)
-            if self._trade_cal_range_cached(start, end, exchange):
-                return
-            self._sync_trade_cal_from_remote(start, end, exchange)
 
     def ingest_trade_calendar_range(
         self,
@@ -459,8 +460,12 @@ class MarketDataProvider:
         return value
 
     def trade_cal(self, start: date, end: date, exchange: str = "SSE") -> list[date]:
-        """返回区间内交易日；优先读本地 trading_calendar_days。"""
-        self.ensure_trade_calendar(start, end, exchange)
+        """返回区间内交易日（仅本地日历 + 工作日回退，不触发远程）。"""
+        return self.trade_cal_no_remote(start, end, exchange)
+
+    def trade_cal_no_remote(self, start: date, end: date, exchange: str = "SSE") -> list[date]:
+        """只读本地日历 + 工作日回退，不触发 TuShare trade_cal（用于增量拉取最新）。"""
+        self._seed_trade_calendar_from_local(start, end, exchange)
         cached = self._load_trade_cal_from_db(start, end, exchange)
         if cached:
             return cached
@@ -570,7 +575,7 @@ class MarketDataProvider:
             exchange=exchange,
             start_date=start.strftime("%Y%m%d"),
             end_date=end.strftime("%Y%m%d"),
-        ))
+        ), api="trade_cal")
         if df is None or df.empty:
             return []
         results: list[dict] = []

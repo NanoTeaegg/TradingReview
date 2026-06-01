@@ -5,10 +5,13 @@ from app.models.market_cache import MarketDailyBar, StockListItem
 from app.services.market import MarketDataProvider
 from app.services.market_sync import (
     MIN_ROWS_PER_SYNCED_DAY,
+    _has_complete_full_history,
     _is_trade_date_fully_synced,
     get_full_history_status,
+    sync_index_daily_incremental,
     sync_stock_daily_for_trade_date,
 )
+from app.services.pnl import DEFAULT_BENCHMARKS
 
 
 def test_ingest_by_trade_date_stores_full_fields(db, monkeypatch):
@@ -33,7 +36,7 @@ def test_ingest_by_trade_date_stores_full_fields(db, monkeypatch):
             }
 
     monkeypatch.setattr("tushare.pro_api", lambda *a, **k: object())
-    monkeypatch.setattr("app.services.market._retry", lambda fn: FakeDf())
+    monkeypatch.setattr("app.services.market._retry", lambda fn, **kw: FakeDf())
 
     n = provider.ingest_stock_daily_by_trade_date(date(2026, 5, 29))
     assert n == 1
@@ -73,6 +76,21 @@ def test_full_history_status_requires_all_stocks_done(db):
     assert status["failed"] == 0
 
 
+def test_complete_full_history_detection_requires_non_empty_all_done(db):
+    assert _has_complete_full_history(db) is False
+
+    db.add(StockListItem(ts_code="000001.SZ", full_history_synced=True))
+    db.add(StockListItem(ts_code="000002.SZ", full_history_synced=False))
+    db.commit()
+    assert _has_complete_full_history(db) is False
+
+    db.query(StockListItem).filter(StockListItem.ts_code == "000002.SZ").update(
+        {"full_history_synced": True}
+    )
+    db.commit()
+    assert _has_complete_full_history(db) is True
+
+
 def test_ingest_stock_daily_history_full_fields(db, monkeypatch):
     provider = MarketDataProvider(db)
 
@@ -90,7 +108,7 @@ def test_ingest_stock_daily_history_full_fields(db, monkeypatch):
             }
 
     monkeypatch.setattr("tushare.pro_api", lambda *a, **k: object())
-    monkeypatch.setattr("app.services.market._retry", lambda fn: FakeDf())
+    monkeypatch.setattr("app.services.market._retry", lambda fn, **kw: FakeDf())
 
     n = provider.ingest_stock_daily_history("000001.SZ", date(2026, 1, 1), date(2026, 5, 29))
     assert n == 1
@@ -136,3 +154,28 @@ def test_sync_skips_when_fully_synced(db, monkeypatch):
         lambda *a, **k: (_ for _ in ()).throw(AssertionError("should skip")),
     )
     assert sync_stock_daily_for_trade_date(db, d) == 0
+
+
+def test_index_incremental_skips_when_all_indexes_are_current(db, monkeypatch):
+    target = date(2026, 5, 29)
+    for index_code, _ in DEFAULT_BENCHMARKS:
+        db.add(
+            MarketDailyBar(
+                instrument_type="index",
+                ts_code=index_code,
+                trade_date=target,
+                close=Decimal("1"),
+                pre_close=Decimal("1"),
+                source="test",
+            )
+        )
+    db.commit()
+
+    monkeypatch.setattr(
+        "app.services.market_sync.MarketDataProvider.ingest_index_daily_range",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("should skip")),
+    )
+
+    index_rows, warnings = sync_index_daily_incremental(db, target)
+    assert index_rows == 0
+    assert warnings == []

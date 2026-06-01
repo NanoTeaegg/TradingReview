@@ -16,9 +16,10 @@ from sqlalchemy import func, text
 from sqlalchemy.orm import Session
 
 from app.core.db import SessionLocal
-from app.models.market_cache import MarketDailyBar, MarketSyncState, StockListItem
+from app.models.market_cache import MarketDailyBar, MarketSyncState, StockListItem, TradingCalendarDay
 from app.services.market import INDEX, MarketDataProvider, STOCK
 from app.services.pnl import DEFAULT_BENCHMARKS
+from app.services.market_dates import syncable_market_end
 from app.services.sentiment import fetch_and_store_market_sentiment, latest_market_date
 
 logger = logging.getLogger("tradingreview.market_sync")
@@ -85,22 +86,39 @@ def sync_stock_daily_for_trade_date(db: Session, trade_date: date) -> int:
     return MarketDataProvider(db).ingest_stock_daily_by_trade_date(trade_date)
 
 
-def backfill_stock_daily_range(db: Session, start: date, end: date, *, pause_sec: float = SYNC_PAUSE_SEC) -> int:
-    """按交易日补齐 [start, end] 内缺失的全市场日线。返回新同步交易日数。"""
+def backfill_stock_daily_range(
+    db: Session,
+    start: date,
+    end: date,
+    *,
+    pause_sec: float = SYNC_PAUSE_SEC,
+    use_local_calendar: bool = False,
+) -> tuple[int, list[str]]:
+    """按交易日补齐 [start, end] 内缺失的全市场日线。返回 (新同步交易日数, 警告列表)。"""
     provider = MarketDataProvider(db)
-    provider.ensure_trade_calendar(start, end)
+    if use_local_calendar:
+        trade_dates = provider.trade_cal_no_remote(start, end)
+    else:
+        provider.ensure_trade_calendar(start, end)
+        trade_dates = provider.trade_cal(start, end)
+
     synced_days = 0
-    for trade_date in provider.trade_cal(start, end):
+    warnings: list[str] = []
+    for trade_date in trade_dates:
         if _is_trade_date_fully_synced(db, trade_date):
             continue
         try:
             if sync_stock_daily_for_trade_date(db, trade_date) > 0:
                 synced_days += 1
                 logger.info("Synced stock daily %s", trade_date.isoformat())
+            else:
+                warnings.append(f"{trade_date.isoformat()} 无可用日线（可能尚未发布）")
         except Exception as exc:
+            msg = f"{trade_date.isoformat()} 同步失败: {exc}"
             logger.warning("Sync stock daily %s failed: %s", trade_date.isoformat(), exc)
+            warnings.append(msg)
         time.sleep(pause_sec)
-    return synced_days
+    return synced_days, warnings
 
 
 # ── 指数日线 ─────────────────────────────────────────────────
@@ -120,19 +138,31 @@ def sync_index_daily_range(db: Session, start: date, end: date) -> int:
     return total
 
 
-def sync_index_daily_incremental(db: Session) -> int:
-    end = latest_market_date()
+def sync_index_daily_incremental(db: Session, end: date | None = None) -> tuple[int, list[str]]:
+    """增量补指数日线；限频失败时跳过并记录警告。"""
+    end = end or latest_market_date()
+    warnings: list[str] = []
     total = 0
-    for index_code, _ in DEFAULT_BENCHMARKS:
+    for index_code, name in DEFAULT_BENCHMARKS:
         max_row = _as_date(
             db.query(func.max(MarketDailyBar.trade_date))
             .filter(MarketDailyBar.instrument_type == INDEX, MarketDailyBar.ts_code == index_code)
             .scalar()
         )
         start = (max_row + timedelta(days=1)) if max_row else business_data_start(db)
-        if start <= end:
-            total += sync_index_daily_range(db, start, end)
-    return total
+        if start > end:
+            continue
+        try:
+            n = MarketDataProvider(db).ingest_index_daily_range(index_code, start, end)
+            if n:
+                total += n
+                logger.info("Synced index %s (%s): %s rows", index_code, name, n)
+        except Exception as exc:
+            msg = f"指数 {name} 更新跳过: {exc}"
+            logger.warning("Sync index %s failed: %s", index_code, exc)
+            warnings.append(msg)
+        time.sleep(SYNC_PAUSE_SEC)
+    return total, warnings
 
 
 # ── 交易日历（与 daily 一致：初始化全量 + 后续增量） ──────────
@@ -166,31 +196,95 @@ def _refresh_latest_sentiment(db: Session) -> None:
         logger.warning("Refresh latest sentiment failed: %s", exc)
 
 
+def _min_stock_bar_date(db: Session) -> date | None:
+    return _as_date(
+        db.query(func.min(MarketDailyBar.trade_date))
+        .filter(MarketDailyBar.instrument_type == STOCK)
+        .scalar()
+    )
+
+
+def _build_sync_message(
+    *,
+    max_date: date | None,
+    target_end: date,
+    synced_days: int,
+    skip_reason: str | None,
+    warnings: list[str],
+) -> str:
+    latest = max_date.isoformat() if max_date else "—"
+    if skip_reason and synced_days > 0:
+        return f"{skip_reason}。本地最新日期：{latest}"
+    if skip_reason and synced_days == 0 and max_date and max_date >= target_end:
+        return f"{skip_reason}。交易数据已是最新（{latest}）"
+    if skip_reason:
+        return skip_reason
+    if synced_days == 0 and max_date and max_date >= target_end:
+        return f"交易数据已是最新（最新日期 {latest}）"
+    if synced_days > 0:
+        return f"已更新 {synced_days} 个交易日，本地最新日期：{latest}"
+    if warnings:
+        return f"未能更新日线，请稍后重试。本地最新日期：{latest}"
+    return f"本地最新日期：{latest}"
+
+
 # ── 拉取最新行情（按交易日全市场增量） ───────────────────────
 
 def sync_latest(db: Session) -> dict:
-    """「拉取最新行情」：DB 最新日期 +1 → 今天 增量同步交易日历 + 股票 + 指数，并刷新当日情绪。"""
-    # 交易日历先增量，保证后续按交易日补数走的是真实日历
-    calendar_days = sync_calendar_incremental(db)
+    """「拉取最新行情」：先增量更新本地交易日历，再确定最近可同步交易日。
 
-    end = latest_market_date()
-    max_d = _max_stock_bar_date(db)
-    start = (max_d + timedelta(days=1)) if max_d else business_data_start(db)
+    先增量更新本地交易日历，再计算可同步目标日；
+    核心只用 daily(trade_date) 拉全市场 A 股。
+    未收盘时目标日回退至上一交易日，并在 message 中说明。
+    指数增量可选、限频时跳过不影响股票结果。
+    """
+    calendar_days = sync_calendar_incremental(db)
+    target_end, skip_reason = syncable_market_end(db)
+    max_before = _max_stock_bar_date(db)
+    start = (max_before + timedelta(days=1)) if max_before else business_data_start(db)
 
     synced_days = 0
-    if start <= end:
-        synced_days = backfill_stock_daily_range(db, start, end)
-    index_rows = sync_index_daily_incremental(db)
-    _refresh_latest_sentiment(db)
+    warnings: list[str] = []
+    if start <= target_end:
+        synced_days, stock_warnings = backfill_stock_daily_range(
+            db, start, target_end, use_local_calendar=True
+        )
+        warnings.extend(stock_warnings)
+
+    index_rows, index_warnings = sync_index_daily_incremental(db, target_end)
+    warnings.extend(index_warnings)
+
+    try:
+        fetch_and_store_market_sentiment(db, target_end)
+    except Exception as exc:
+        logger.warning("Refresh latest sentiment failed: %s", exc)
+        warnings.append(f"情绪快照未更新: {exc}")
+
+    min_d = _min_stock_bar_date(db)
+    max_d = _max_stock_bar_date(db)
+    message = _build_sync_message(
+        max_date=max_d,
+        target_end=target_end,
+        synced_days=synced_days,
+        skip_reason=skip_reason,
+        warnings=warnings,
+    )
 
     return {
-        "ok": True,
-        "start": start.isoformat(),
-        "end": end.isoformat(),
+        "ok": synced_days > 0 or (max_d is not None and max_d >= target_end),
+        "status": "skipped_today" if skip_reason else ("success" if synced_days > 0 else "up_to_date"),
+        "message": message,
+        "warnings": warnings,
         "calendar_days": calendar_days,
+        "skipped_today": skip_reason is not None,
+        "skip_reason": skip_reason,
+        "start": start.isoformat(),
+        "end": target_end.isoformat(),
+        "target_end": target_end.isoformat(),
         "synced_days": synced_days,
         "index_rows": index_rows,
-        "max_date": (_max_stock_bar_date(db) or end).isoformat(),
+        "min_date": min_d.isoformat() if min_d else None,
+        "max_date": max_d.isoformat() if max_d else None,
     }
 
 
@@ -227,6 +321,33 @@ def _thread_alive() -> bool:
     return _full_history_thread is not None and _full_history_thread.is_alive()
 
 
+def is_full_history_running() -> bool:
+    return _thread_alive()
+
+
+def _has_complete_full_history(db: Session) -> bool:
+    total = db.query(func.count(StockListItem.id)).scalar() or 0
+    if total <= 0:
+        return False
+    done = (
+        db.query(func.count(StockListItem.id))
+        .filter(StockListItem.full_history_synced.is_(True))
+        .scalar()
+        or 0
+    )
+    return done >= total
+
+
+def ensure_trade_calendar_bootstrap() -> None:
+    """启动阶段初始化交易日历：仅当本地日历为空时，从远端全量初始化一次。"""
+    with SessionLocal() as db:
+        calendar_count = db.query(func.count(TradingCalendarDay.id)).scalar() or 0
+        if calendar_count > 0:
+            return
+        logger.info("Bootstrap trading calendar from TuShare: %s -> %s", FULL_HISTORY_START, date.today())
+        sync_calendar_range(db, FULL_HISTORY_START, date.today())
+
+
 def get_full_history_status(db: Session) -> dict:
     """全量历史进度：以 stock_list 的 done/total 判断是否拥有全量历史。"""
     total = db.query(func.count(StockListItem.id)).scalar() or 0
@@ -242,13 +363,6 @@ def get_full_history_status(db: Session) -> dict:
         .scalar()
     )
     max_d = _max_stock_bar_date(db)
-    bar_count = (
-        db.query(func.count(MarketDailyBar.id))
-        .filter(MarketDailyBar.instrument_type == STOCK)
-        .scalar()
-        or 0
-    )
-
     failed = (
         db.query(func.count(StockListItem.id))
         .filter(
@@ -281,7 +395,6 @@ def get_full_history_status(db: Session) -> dict:
         "message": state.message if state else None,
         "min_date": min_d.isoformat() if min_d else None,
         "max_date": max_d.isoformat() if max_d else None,
-        "bar_count": int(bar_count),
     }
 
 
@@ -291,6 +404,10 @@ def start_full_history() -> dict:
     with _full_history_lock:
         if _thread_alive():
             with SessionLocal() as db:
+                return get_full_history_status(db)
+        with SessionLocal() as db:
+            if _has_complete_full_history(db):
+                _set_state(db, status="complete", message="全量历史已完成", mark_finished=True)
                 return get_full_history_status(db)
         _full_history_cancel.clear()
         _full_history_thread = threading.Thread(
@@ -311,17 +428,17 @@ def cancel_full_history() -> dict:
 def _run_full_history() -> None:
     with SessionLocal() as db:
         try:
+            if _has_complete_full_history(db):
+                _set_state(db, status="complete", message="全量历史已完成", mark_finished=True)
+                return
+
             _set_state(db, status="running", message="刷新股票清单…", mark_started=True)
 
             # 1) 股票清单：每次刷新 stock_basic（补新股，不回退已完成标记）
             provider = MarketDataProvider(db)
             provider.ingest_stock_basic(list_status="L")
 
-            # 2) 交易日历全量（一次调用覆盖全历史）
-            _set_state(db, status="running", message="同步交易日历…")
-            sync_calendar_range(db, FULL_HISTORY_START, date.today())
-
-            # 3) 逐只拉历史（断点续传/修复：处理未完成的）
+            # 2) 逐只拉历史（断点续传/修复：处理未完成的）
             pending = [
                 r[0]
                 for r in db.query(StockListItem.ts_code)
@@ -355,10 +472,14 @@ def _run_full_history() -> None:
                         db.commit()
                 time.sleep(SYNC_PAUSE_SEC)
 
-            # 4) 指数全量 + 当日情绪
-            _set_state(db, status="running", message="同步指数与情绪…")
-            sync_index_daily_range(db, FULL_HISTORY_START, date.today())
-            _refresh_latest_sentiment(db)
+            # 3) 指数缺口 + 当日情绪；已有最新数据时跳过，避免 100% 后重复请求 index_daily。
+            _set_state(db, status="running", message="补齐指数与情绪…")
+            target_end, _ = syncable_market_end(db)
+            sync_index_daily_incremental(db, target_end)
+            try:
+                fetch_and_store_market_sentiment(db, target_end)
+            except Exception as exc:
+                logger.warning("Refresh final sentiment failed: %s", exc)
 
             _set_state(db, status="complete", message="全量历史已完成", mark_finished=True)
         except Exception as exc:

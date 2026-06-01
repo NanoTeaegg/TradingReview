@@ -71,9 +71,19 @@ function MarketSection() {
     )
   }
 
+  const statusText = (s.note?.includes('休市') || !s.is_trading_day)
+      ? '今日休市'
+      : '交易日'
+  const statusColor = statusText === '交易日' ? 'var(--color-profit)' : 'var(--color-text-tertiary)'
+
   return (
     <section className="flex flex-col gap-4">
-      <h2 className="text-lg font-semibold" style={{ color: 'var(--color-text-primary)' }}>盘面解析</h2>
+      <h2 className="text-lg font-semibold" style={{ color: 'var(--color-text-primary)' }}>
+        盘面解析
+        <span className="ml-3 text-sm font-normal" style={{ color: 'var(--color-text-tertiary)' }}>
+          本地数据日期：{s.date}
+        </span>
+      </h2>
       <div className="grid grid-cols-3 gap-5">
         <div
           className="rounded-lg p-5 flex flex-col gap-1"
@@ -83,8 +93,10 @@ function MarketSection() {
             <span className="text-base font-semibold" style={{ color: 'var(--color-text-primary)' }}>市场情绪</span>
             <SentimentBadge sentiment={s.sentiment} />
           </div>
-          {!s.is_trading_day ? (
-            <p className="text-sm" style={{ color: 'var(--color-text-tertiary)' }}>今日休市</p>
+          {statusText !== '交易日' ? (
+            <p className="text-sm" style={{ color: 'var(--color-text-tertiary)' }}>
+              {s.note || '今日休市'}
+            </p>
           ) : (
             <>
               <StatRow label="上涨家数" value={s.up_count.toLocaleString()} color="var(--color-profit)" />
@@ -110,11 +122,10 @@ function MarketSection() {
         >
           <span className="text-base font-semibold mb-2" style={{ color: 'var(--color-text-primary)' }}>资金概况</span>
           <StatRow label="全市场成交额" value={`${s.total_volume_billion.toLocaleString()} 亿`} />
-          <StatRow label="数据日期" value={s.date} />
           <StatRow
             label="交易状态"
-            value={s.is_trading_day ? '交易日' : '休市'}
-            color={s.is_trading_day ? 'var(--color-profit)' : 'var(--color-text-tertiary)'}
+            value={statusText}
+            color={statusColor}
           />
         </div>
       </div>
@@ -149,7 +160,8 @@ export default function TodayHoldings() {
 
   const totalMarketValue = holdings.reduce((s, h) => s + n(h.market_value), 0)
   const totalFloatPnl = holdings.reduce((s, h) => s + n(h.float_pnl), 0)
-  const holdingsDate = holdings.find((h) => h.as_of_date)?.as_of_date ?? sentiment?.date
+  const localFileDate = holdings.find((h) => h.as_of_date)?.as_of_date
+  const priceDate = holdings.find((h) => h.price_date)?.price_date ?? sentiment?.date
 
   function toggleSort(key: SortKey) {
     if (sortKey === key) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
@@ -173,10 +185,27 @@ export default function TodayHoldings() {
 
       <MarketSection />
 
+      {sentiment?.update_available && (
+        <div
+          className="flex items-center gap-3 px-4 py-3 rounded-lg text-sm"
+          style={{ background: 'rgba(217,119,6,0.06)', borderLeft: '4px solid var(--color-warning)' }}
+        >
+          <AlertTriangle size={14} style={{ color: 'var(--color-warning)' }} />
+          <span style={{ color: 'var(--color-text-primary)' }}>
+            {sentiment.note || `本地行情最新至 ${sentiment.date}，最新交易日 ${sentiment.update_target_date ?? '今日'} 可在设置里拉取最新数据。`}
+          </span>
+        </div>
+      )}
+
       <section className="flex flex-col gap-4">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold" style={{ color: 'var(--color-text-primary)' }}>
-            持仓明细{holdingsDate ? ` ${holdingsDate}` : ''}
+            持仓明细
+            {localFileDate && (
+              <span className="ml-3 text-sm font-normal" style={{ color: 'var(--color-text-tertiary)' }}>
+                上传文件数据日期：{localFileDate}
+              </span>
+            )}
           </h2>
           <div className="flex gap-6 text-sm">
             <div>
@@ -188,7 +217,9 @@ export default function TodayHoldings() {
             <div>
               <span style={{ color: 'var(--color-text-tertiary)' }}>总持仓盈亏 </span>
               {isLoading ? (
-                <span className="font-semibold tabular-nums" style={{ color: 'var(--color-text-primary)' }}>—</span>
+                <span className="font-semibold tabular-nums" style={{ color: 'var(--color-text-primary)' }}>
+                  —
+                </span>
               ) : (
                 <PnlNumber value={totalFloatPnl} formatter={formatAmount} className="font-semibold" />
               )}
@@ -234,7 +265,7 @@ export default function TodayHoldings() {
                     { label: '股票', align: 'left' },
                     { label: '持仓数量', align: 'left' },
                     { label: '持仓均价', align: 'left' },
-                    { label: '最新价', align: 'left' },
+                    { label: priceDate ? `最新价（${priceDate}）` : '最新价', align: 'left' },
                   ].map(({ label, align }) => (
                     <th
                       key={label}
