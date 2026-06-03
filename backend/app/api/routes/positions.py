@@ -14,7 +14,7 @@ def get_positions(db: Session = Depends(get_session), account_id: int = Depends(
 
 @router.get("/positions/equity-curve")
 def get_equity_curve(db: Session = Depends(get_session), account_id: int = Depends(get_current_account_id)):
-    """账户收益率走势：时间加权净值 + 多基准（沪深300/上证/深证/创业板）。"""
+    """账户收益率走势：时间加权净值 + 多基准（上证/沪深300/创业板/科创50）。"""
     return pnl.get_equity_curve(db, account_id=account_id)
 
 

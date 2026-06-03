@@ -7,7 +7,12 @@ import { AccountProvider } from '@/lib/account'
 
 const queryClient = new QueryClient({
   defaultOptions: {
-    queries: { staleTime: 30_000, retry: 1 },
+    queries: {
+      staleTime: 5 * 60 * 1000,
+      gcTime: 24 * 60 * 60 * 1000,
+      refetchOnWindowFocus: false,
+      retry: 1,
+    },
   },
 })
 

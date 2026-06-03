@@ -99,7 +99,7 @@ export default function Settings() {
   const { data: feeSettings } = useFeeSettings()
   const saveFeeSettings = useSaveFeeSettings()
 
-  const { data: historyStatus } = useFullHistoryStatus()
+  const { data: historyStatus, isFetching: historyFetching } = useFullHistoryStatus()
   const startHistory = useStartFullHistory()
   const cancelHistory = useCancelFullHistory()
   const syncLatest = useSyncLatestMarket()
@@ -113,7 +113,7 @@ export default function Settings() {
     if (wasSyncRunning.current && syncStatus && !syncStatus.running) {
       if (syncStatus.status === 'complete') {
         invalidateMarketViews()
-        setMarketMsg({ ok: true, text: syncStatus.message ?? (syncStatus.max_date ? `已更新到 ${syncStatus.max_date}` : '已是最新') })
+        setMarketMsg({ ok: true, text: syncStatus.message ?? '已是最新' })
       } else if (syncStatus.status === 'error') {
         setMarketMsg({ ok: false, text: syncStatus.message ?? '拉取失败，请稍后重试' })
       } else if (syncStatus.status === 'interrupted') {
@@ -125,9 +125,21 @@ export default function Settings() {
 
   const syncRunning = (syncStatus?.running ?? false) || syncLatest.isPending
   const running = historyStatus?.running ?? false
+  const historyReady = Boolean(historyStatus) && !historyFetching
   const total = historyStatus?.total ?? 0
   const done = historyStatus?.done ?? 0
   const progressPct = total > 0 ? Math.round((done / total) * 100) : 0
+  const marketActionDisabled = startHistory.isPending || syncRunning || !historyReady
+  const marketActionIcon = !historyReady
+    ? <Loader2 size={14} className="animate-spin" />
+    : historyStatus?.has_data
+      ? <RefreshCw size={14} className={syncRunning ? 'animate-spin' : undefined} />
+      : <Database size={14} />
+  const marketActionLabel = !historyReady
+    ? '数据检索中'
+    : historyStatus?.has_data
+      ? (syncRunning ? '拉取中…' : '拉取最新行情')
+      : (startHistory.isPending ? '初始化中…' : '初始化全量历史')
 
   useEffect(() => {
     if (feeSettings) {
@@ -161,7 +173,7 @@ export default function Settings() {
     })
   }
   function handleSmartMarketSync() {
-    if (running || syncRunning) return
+    if (running || syncRunning || !historyReady) return
     if (historyStatus?.has_data) {
       handleSyncLatest()
       return
@@ -633,11 +645,11 @@ export default function Settings() {
                 <button
                   className="inline-flex items-center gap-2 px-4 h-9 rounded-md text-sm font-medium transition-colors duration-[120ms] disabled:opacity-45 whitespace-nowrap"
                   style={{ background: 'var(--color-primary)', color: 'var(--color-text-on-brand)' }}
-                  disabled={startHistory.isPending || syncRunning}
+                  disabled={marketActionDisabled}
                   onClick={handleSmartMarketSync}
                 >
-                  {historyStatus?.has_data ? <RefreshCw size={14} className={syncRunning ? 'animate-spin' : undefined} /> : <Database size={14} />}
-                  {historyStatus?.has_data ? (syncRunning ? '拉取中…' : '拉取最新行情') : (startHistory.isPending ? '初始化中…' : '初始化全量历史')}
+                  {marketActionIcon}
+                  {marketActionLabel}
                 </button>
               )}
             </div>

@@ -148,6 +148,7 @@ def sync_index_daily_incremental(db: Session, end: date | None = None) -> tuple[
     end = end or latest_market_date()
     warnings: list[str] = []
     total = 0
+    missing_indexes: list[tuple[str, str, date]] = []
     for index_code, name in DEFAULT_BENCHMARKS:
         max_row = _as_date(
             db.query(func.max(MarketDailyBar.trade_date))
@@ -157,6 +158,14 @@ def sync_index_daily_incremental(db: Session, end: date | None = None) -> tuple[
         start = (max_row + timedelta(days=1)) if max_row else business_data_start(db)
         if start > end:
             continue
+        missing_indexes.append((index_code, name, start))
+
+    # 低积分 TuShare 账号的 index_daily 常见限制是 1次/小时或 5次/天。
+    # 一轮只补一个缺口指数，避免成功一个后立刻请求下一只指数，白等 62s 后仍然撞限频。
+    if len(missing_indexes) > 1:
+        warnings.append("指数日线本轮仅补 1 个基准，剩余基准下次同步继续补齐")
+
+    for index_code, name, start in missing_indexes[:1]:
         try:
             n = MarketDataProvider(db).ingest_index_daily_range(index_code, start, end)
             if n:
@@ -316,16 +325,12 @@ def get_latest_sync_status(db: Session) -> dict:
     # running 但线程已死（如服务重启）→ 视为中断，可重新触发
     status = "interrupted" if (raw_status == "running" and not alive) else raw_status
 
-    min_d = _min_stock_bar_date(db)
-    max_d = _max_stock_bar_date(db)
     return {
         "status": status,
         "running": status == "running",
         "message": state.message if state else None,
         "started_at": state.started_at.isoformat() if state and state.started_at else None,
         "finished_at": state.finished_at.isoformat() if state and state.finished_at else None,
-        "min_date": min_d.isoformat() if min_d else None,
-        "max_date": max_d.isoformat() if max_d else None,
     }
 
 

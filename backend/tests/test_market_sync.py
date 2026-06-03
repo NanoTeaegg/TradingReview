@@ -1,5 +1,7 @@
 from datetime import date
 from decimal import Decimal
+import sys
+import types
 
 import pytest
 
@@ -30,6 +32,22 @@ class _SessionContext:
         return False
 
 
+def _install_fake_tushare(monkeypatch):
+    fake_ts = types.ModuleType("tushare")
+    fake_ts.pro_api = lambda *a, **k: object()
+    monkeypatch.setitem(sys.modules, "tushare", fake_ts)
+    return fake_ts
+
+
+def test_default_benchmarks_use_selected_four_indexes():
+    assert DEFAULT_BENCHMARKS == [
+        ("000001.SH", "上证综指"),
+        ("000300.SH", "沪深300"),
+        ("399006.SZ", "创业板指"),
+        ("000688.SH", "科创50"),
+    ]
+
+
 def test_ingest_by_trade_date_stores_full_fields(db, monkeypatch):
     provider = MarketDataProvider(db)
 
@@ -51,7 +69,7 @@ def test_ingest_by_trade_date_stores_full_fields(db, monkeypatch):
                 "amount": 98765.43,
             }
 
-    monkeypatch.setattr("tushare.pro_api", lambda *a, **k: object())
+    _install_fake_tushare(monkeypatch)
     monkeypatch.setattr("app.services.market._retry", lambda fn, **kw: FakeDf())
 
     n = provider.ingest_stock_daily_by_trade_date(date(2026, 5, 29))
@@ -123,7 +141,7 @@ def test_ingest_stock_daily_history_full_fields(db, monkeypatch):
                 "amount": 2000.0,
             }
 
-    monkeypatch.setattr("tushare.pro_api", lambda *a, **k: object())
+    _install_fake_tushare(monkeypatch)
     monkeypatch.setattr("app.services.market._retry", lambda fn, **kw: FakeDf())
 
     n = provider.ingest_stock_daily_history("000001.SZ", date(2026, 1, 1), date(2026, 5, 29))
@@ -197,6 +215,27 @@ def test_index_incremental_skips_when_all_indexes_are_current(db, monkeypatch):
     assert warnings == []
 
 
+def test_index_incremental_attempts_only_one_missing_index_per_run(db, monkeypatch):
+    """低积分账号下 index_daily 一轮只补一个缺口指数，避免成功后下一只撞小时限频。"""
+    calls: list[str] = []
+
+    def ingest_one(self, index_code, start, end):
+        calls.append(index_code)
+        return 1
+
+    monkeypatch.setattr(
+        "app.services.market_sync.MarketDataProvider.ingest_index_daily_range",
+        ingest_one,
+    )
+    monkeypatch.setattr(market_sync.time, "sleep", lambda *_: None)
+
+    index_rows, warnings = sync_index_daily_incremental(db, date(2026, 6, 1))
+
+    assert index_rows == 1
+    assert calls == [DEFAULT_BENCHMARKS[0][0]]
+    assert any("本轮仅补 1 个基准" in w for w in warnings)
+
+
 def test_retry_fast_fails_on_hourly_rate_limit(monkeypatch):
     """按小时限频不应进入 62s 退避重试，直接放弃。"""
     calls = {"n": 0}
@@ -260,7 +299,7 @@ def test_index_incremental_skips_remaining_on_long_period_rate_limit(db, monkeyp
 def test_fetch_index_daily_reraises_rate_limit_but_swallows_others(db, monkeypatch):
     """限频异常需向上抛出（供同步任务跳过其余基准）；其余错误按缺失返回空。"""
     provider = MarketDataProvider(db)
-    monkeypatch.setattr("tushare.pro_api", lambda *a, **k: object())
+    _install_fake_tushare(monkeypatch)
 
     def rate_limited(fn, **kw):
         raise RuntimeError("访问接口(index_daily)频率超限(1次/小时)")

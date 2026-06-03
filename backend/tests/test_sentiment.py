@@ -1,4 +1,6 @@
 import time
+import sys
+import types
 
 import pytest
 
@@ -28,9 +30,6 @@ def test_call_with_timeout_raises_on_hang():
 
 def test_fetch_limit_counts_degrades_to_zero_when_akshare_hangs(monkeypatch):
     """akshare 涨跌停池挂起时，涨跌停数降级为 0，不拖死调用方。"""
-    import sys
-    import types
-
     fake_ak = types.ModuleType("akshare")
     fake_ak.stock_zt_pool_em = lambda date: time.sleep(5)
     fake_ak.stock_dt_pool_em = lambda date: time.sleep(5)
@@ -43,6 +42,57 @@ def test_fetch_limit_counts_degrades_to_zero_when_akshare_hangs(monkeypatch):
 
     assert (limit_up, limit_down) == (0, 0)
     assert elapsed < 2.0  # 两次 0.1s 超时即放弃，不会等满 10s
+
+
+def test_tushare_daily_sentiment_uses_shared_retry(monkeypatch):
+    """情绪快照的 TuShare daily 也必须走统一限流/重试路径。"""
+    fake_ts = types.ModuleType("tushare")
+    fake_ts.pro_api = lambda *args, **kwargs: object()
+    monkeypatch.setitem(sys.modules, "tushare", fake_ts)
+    monkeypatch.setattr(sentiment.settings, "TUSHARE_API_KEY", "token")
+    monkeypatch.setattr(sentiment, "_fetch_limit_counts", lambda trade_date: (0, 0))
+
+    calls: list[str] = []
+
+    class FakeSeries:
+        def __init__(self, values):
+            self.values = values
+
+        def __gt__(self, other):
+            return FakeSeries([v > other for v in self.values])
+
+        def __lt__(self, other):
+            return FakeSeries([v < other for v in self.values])
+
+        def __eq__(self, other):
+            return FakeSeries([v == other for v in self.values])
+
+        def sum(self):
+            return sum(self.values)
+
+    class FakeDf:
+        empty = False
+        columns = ["pct_chg", "amount"]
+
+        def __getitem__(self, key):
+            if key == "pct_chg":
+                return FakeSeries([1, -1, 0])
+            if key == "amount":
+                return FakeSeries([100000, 200000, 300000])
+            raise KeyError(key)
+
+    def fake_retry(fn, **kwargs):
+        calls.append(kwargs["api"])
+        return FakeDf()
+
+    monkeypatch.setattr(sentiment, "_retry", fake_retry)
+
+    result = sentiment._fetch_tushare_daily_sentiment(date(2026, 6, 1))
+
+    assert calls == ["daily"]
+    assert result["up_count"] == 1
+    assert result["down_count"] == 1
+    assert result["flat_count"] == 1
 
 
 def test_latest_market_date_uses_friday_on_weekends():

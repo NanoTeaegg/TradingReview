@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import ReactECharts from 'echarts-for-react'
 import { Plus, Pencil, Bot, X, Star, Check, Loader2, ChevronLeft, ChevronRight, SlidersHorizontal } from 'lucide-react'
+import EChart from '@/components/shared/EChart'
 import PnlNumber from '@/components/shared/PnlNumber'
 import { formatAmount, formatPct, formatSignedPct, formatTradeDate } from '@/lib/format'
 import {
@@ -280,10 +280,10 @@ const RANGE_TABS: { key: RangeKey; label: string }[] = [
 
 // 基准线配色：账户用品牌主色，基准用中性灰阶，保证账户曲线突出
 const BENCH_COLORS: Record<string, string> = {
-  '000300.SH': '#5e5d59',
   '000001.SH': '#a07e5a',
-  '399001.SZ': '#7d8a6a',
+  '000300.SH': '#5e5d59',
   '399006.SZ': '#9a7aa0',
+  '000688.SH': '#2a9fbf',
 }
 const ACCOUNT_COLOR = '#c96442'
 
@@ -295,6 +295,12 @@ function rangeStartDate(range: RangeKey, lastISO: string): Date {
   if (range === '1m') { const d = new Date(last); d.setMonth(d.getMonth() - 1); return d }
   if (range === 'ytd') return new Date(last.getFullYear(), 0, 1)
   return new Date(0)
+}
+
+function formatSignedPctPoint(value: number | null | undefined): string {
+  if (value == null) return '—'
+  const sign = value > 0 ? '+' : ''
+  return `${sign}${value.toFixed(2)}%`
 }
 
 function ReturnTrendCard({ curve, loading, failed }: { curve?: EquityCurve; loading: boolean; failed?: boolean }) {
@@ -503,7 +509,7 @@ function ReturnTrendCard({ curve, loading, failed }: { curve?: EquityCurve; load
       ) : !chartOption ? (
         <div className="flex items-center justify-center h-[260px] text-sm" style={{ color: 'var(--color-text-tertiary)' }}>导入成交数据后显示净值曲线</div>
       ) : (
-        <ReactECharts option={chartOption} style={{ height: 260 }} notMerge />
+        <EChart option={chartOption} style={{ height: 260 }} notMerge />
       )}
 
       {/* 基准对比 chips */}
@@ -520,7 +526,7 @@ function ReturnTrendCard({ curve, loading, failed }: { curve?: EquityCurve; load
                 </span>
                 <span className="text-sm font-medium tabular-nums"
                   style={{ color: b.ret == null ? 'var(--color-text-tertiary)' : b.ret > 0 ? 'var(--color-profit)' : b.ret < 0 ? 'var(--color-loss)' : 'var(--color-text-secondary)' }}>
-                  {b.ret == null ? '—' : formatSignedPct(b.ret)}
+                  {formatSignedPctPoint(b.ret)}
                 </span>
               </button>
             )

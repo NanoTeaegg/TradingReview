@@ -1,4 +1,4 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient, type QueryClient } from '@tanstack/react-query'
 import api from './api'
 import { useCurrentAccountId, useSetCurrentAccountId } from './account'
 
@@ -231,6 +231,8 @@ function useAccountScopedKey(key: unknown[]) {
   return { accountId, queryKey: [...key, accountId] as const }
 }
 
+const accountScopedKey = (key: unknown[], accountId: number | null) => [...key, accountId] as const
+
 export function invalidateAccountScopedQueries(qc: ReturnType<typeof useQueryClient>) {
   for (const key of [
     'trades',
@@ -363,12 +365,26 @@ export function usePositions() {
   return useQuery<Position[]>({
     queryKey,
     queryFn: () => api.get('/api/positions').then(r => r.data),
+    ...MARKET_VIEW_QUERY_OPTS,
   })
 }
 
 const HEAVY_QUERY_OPTS = {
   staleTime: 5 * 60 * 1000,
+  gcTime: 24 * 60 * 60 * 1000,
   refetchOnWindowFocus: false,
+  refetchInterval: 60 * 60 * 1000,
+} as const
+
+const LOCAL_VIEW_QUERY_OPTS = {
+  staleTime: 5 * 60 * 1000,
+  gcTime: 24 * 60 * 60 * 1000,
+  refetchOnWindowFocus: false,
+} as const
+
+const MARKET_VIEW_QUERY_OPTS = {
+  ...LOCAL_VIEW_QUERY_OPTS,
+  refetchInterval: 60 * 60 * 1000,
 } as const
 
 export function useSummary() {
@@ -395,7 +411,7 @@ export function useSentiment() {
   return useQuery<Sentiment>({
     queryKey: ['sentiment'],
     queryFn: () => api.get('/api/market/sentiment').then(r => r.data),
-    staleTime: 5 * 60 * 1000,
+    ...MARKET_VIEW_QUERY_OPTS,
   })
 }
 
@@ -432,8 +448,27 @@ export interface LatestSyncStatus {
   message: string | null
   started_at: string | null
   finished_at: string | null
-  min_date: string | null
-  max_date: string | null
+}
+
+const MARKET_HISTORY_CACHE_KEY = 'tradingreview:market-history-status:v1'
+
+function readCachedMarketHistoryStatus(): FullHistoryStatus | undefined {
+  if (typeof window === 'undefined') return undefined
+  try {
+    const cached = window.localStorage.getItem(MARKET_HISTORY_CACHE_KEY)
+    return cached ? (JSON.parse(cached) as FullHistoryStatus) : undefined
+  } catch {
+    return undefined
+  }
+}
+
+function writeCachedMarketHistoryStatus(status: FullHistoryStatus) {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.setItem(MARKET_HISTORY_CACHE_KEY, JSON.stringify(status))
+  } catch {
+    // localStorage is only a display cache; failed writes should not block live data.
+  }
 }
 
 /** 「拉取最新行情」：启动后台任务并立即返回，进度由 useLatestSyncStatus 轮询。 */
@@ -467,7 +502,14 @@ export function useInvalidateMarketViews() {
 export function useFullHistoryStatus() {
   return useQuery<FullHistoryStatus>({
     queryKey: ['market-history'],
-    queryFn: () => api.get('/api/market/history').then(r => r.data),
+    queryFn: async () => {
+      const status = await api.get('/api/market/history').then(r => r.data as FullHistoryStatus)
+      writeCachedMarketHistoryStatus(status)
+      return status
+    },
+    initialData: readCachedMarketHistoryStatus,
+    initialDataUpdatedAt: 0,
+    staleTime: 2 * 60 * 1000,
     refetchInterval: (query) => (query.state.data?.running ? 2000 : false),
   })
 }
@@ -501,6 +543,7 @@ export function useIntents(filterCode?: string) {
       filterCode
         ? data.filter(i => i.stock_code?.includes(filterCode) || i.stock_name?.includes(filterCode))
         : data,
+    ...LOCAL_VIEW_QUERY_OPTS,
   })
 }
 
@@ -564,6 +607,7 @@ export function useWinRate(tag?: string) {
   return useQuery<WinRate>({
     queryKey,
     queryFn: () => api.get(`/api/stats/win-rate${tag ? `?tag=${tag}` : ''}`).then(r => r.data),
+    ...LOCAL_VIEW_QUERY_OPTS,
   })
 }
 
@@ -572,6 +616,7 @@ export function useDiscipline() {
   return useQuery<Discipline>({
     queryKey,
     queryFn: () => api.get('/api/stats/discipline').then(r => r.data),
+    ...LOCAL_VIEW_QUERY_OPTS,
   })
 }
 
@@ -580,6 +625,7 @@ export function useTurnover() {
   return useQuery<TurnoverItem[]>({
     queryKey,
     queryFn: () => api.get('/api/stats/turnover').then(r => r.data),
+    ...MARKET_VIEW_QUERY_OPTS,
   })
 }
 
@@ -588,7 +634,50 @@ export function useTagPerformance() {
   return useQuery<TagPerf[]>({
     queryKey,
     queryFn: () => api.get('/api/stats/tag-performance').then(r => r.data),
+    ...LOCAL_VIEW_QUERY_OPTS,
   })
+}
+
+export function prefetchNavigationViews(qc: QueryClient, accountId: number) {
+  const options = LOCAL_VIEW_QUERY_OPTS
+  const prefetches = [
+    qc.prefetchQuery({
+      queryKey: accountScopedKey(['positions'], accountId),
+      queryFn: () => api.get('/api/positions').then(r => r.data as Position[]),
+      ...options,
+    }),
+    qc.prefetchQuery({
+      queryKey: ['sentiment'],
+      queryFn: () => api.get('/api/market/sentiment').then(r => r.data as Sentiment),
+      ...options,
+    }),
+    qc.prefetchQuery({
+      queryKey: accountScopedKey(['intents'], accountId),
+      queryFn: () => api.get('/api/intents').then(r => r.data as Intent[]),
+      ...options,
+    }),
+    qc.prefetchQuery({
+      queryKey: accountScopedKey(['win-rate', undefined], accountId),
+      queryFn: () => api.get('/api/stats/win-rate').then(r => r.data as WinRate),
+      ...options,
+    }),
+    qc.prefetchQuery({
+      queryKey: accountScopedKey(['discipline'], accountId),
+      queryFn: () => api.get('/api/stats/discipline').then(r => r.data as Discipline),
+      ...options,
+    }),
+    qc.prefetchQuery({
+      queryKey: accountScopedKey(['turnover'], accountId),
+      queryFn: () => api.get('/api/stats/turnover').then(r => r.data as TurnoverItem[]),
+      ...options,
+    }),
+    qc.prefetchQuery({
+      queryKey: accountScopedKey(['tag-performance'], accountId),
+      queryFn: () => api.get('/api/stats/tag-performance').then(r => r.data as TagPerf[]),
+      ...options,
+    }),
+  ]
+  void Promise.allSettled(prefetches)
 }
 
 // ── reviews ──────────────────────────────────────────────────

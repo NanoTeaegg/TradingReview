@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.db import SessionLocal
 from app.models.market_cache import MarketDailyBar, MarketSentimentSnapshot
-from app.services.market import STOCK
+from app.services.market import STOCK, _retry
 from app.services.market_dates import current_market_date
 
 logger = logging.getLogger("tradingreview.sentiment")
@@ -193,10 +193,13 @@ def _fetch_tushare_daily_sentiment(trade_date: date) -> dict:
     import tushare as ts
 
     pro = ts.pro_api(settings.TUSHARE_API_KEY)
-    df = _call_with_timeout(
-        lambda: pro.daily(trade_date=trade_date.strftime("%Y%m%d")),
-        TUSHARE_FETCH_TIMEOUT_SEC,
-        "tushare daily",
+    df = _retry(
+        lambda: _call_with_timeout(
+            lambda: pro.daily(trade_date=trade_date.strftime("%Y%m%d")),
+            TUSHARE_FETCH_TIMEOUT_SEC,
+            "tushare daily",
+        ),
+        api="daily",
     )
     if df is None or df.empty:
         raise RuntimeError("empty TuShare daily result")
