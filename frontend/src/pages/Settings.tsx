@@ -125,7 +125,9 @@ export default function Settings() {
 
   const syncRunning = (syncStatus?.running ?? false) || syncLatest.isPending
   const running = historyStatus?.running ?? false
-  const historyReady = Boolean(historyStatus) && !historyFetching
+  // 仅以「是否仍在检索」判定就绪：即便查询出错（后端临时不可用、无缓存）也会在请求结束后解禁，
+  // 避免按钮永久卡在「数据检索中」无法重试。出错时下方按钮回落为可点击的「初始化/拉取」入口。
+  const historyReady = !historyFetching
   const total = historyStatus?.total ?? 0
   const done = historyStatus?.done ?? 0
   const progressPct = total > 0 ? Math.round((done / total) * 100) : 0

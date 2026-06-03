@@ -369,13 +369,6 @@ export function usePositions() {
   })
 }
 
-const HEAVY_QUERY_OPTS = {
-  staleTime: 5 * 60 * 1000,
-  gcTime: 24 * 60 * 60 * 1000,
-  refetchOnWindowFocus: false,
-  refetchInterval: 60 * 60 * 1000,
-} as const
-
 const LOCAL_VIEW_QUERY_OPTS = {
   staleTime: 5 * 60 * 1000,
   gcTime: 24 * 60 * 60 * 1000,
@@ -392,7 +385,7 @@ export function useSummary() {
   return useQuery<Summary>({
     queryKey,
     queryFn: () => api.get('/api/positions/summary').then(r => r.data),
-    ...HEAVY_QUERY_OPTS,
+    ...MARKET_VIEW_QUERY_OPTS,
   })
 }
 
@@ -401,7 +394,7 @@ export function useEquityCurve() {
   return useQuery<EquityCurve>({
     queryKey,
     queryFn: () => api.get('/api/positions/equity-curve').then(r => r.data),
-    ...HEAVY_QUERY_OPTS,
+    ...MARKET_VIEW_QUERY_OPTS,
   })
 }
 
