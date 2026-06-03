@@ -36,7 +36,7 @@ async def lifespan(app: FastAPI):
             pass
 
 
-app = FastAPI(title="TradingReview API", version="0.2.1", lifespan=lifespan)
+app = FastAPI(title="TradingReview API", version="0.2.2", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
