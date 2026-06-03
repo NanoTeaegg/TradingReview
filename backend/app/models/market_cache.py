@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Optional
-from sqlalchemy import Boolean, Date, DateTime, Integer, String, UniqueConstraint, func
+from sqlalchemy import Boolean, Date, DateTime, Index, Integer, String, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base
@@ -29,6 +29,8 @@ class MarketDailyBar(Base):
     __tablename__ = "market_daily_bars"
     __table_args__ = (
         UniqueConstraint("instrument_type", "ts_code", "trade_date", name="uq_market_daily_bar"),
+        # 加速「最新交易日」查询：MAX/MIN(trade_date) WHERE instrument_type=... 末尾定位
+        Index("ix_market_daily_bars_latest", "instrument_type", "trade_date"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
