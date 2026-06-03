@@ -1,7 +1,22 @@
+import { useEffect } from 'react'
 import { Outlet } from 'react-router-dom'
+import { useQueryClient } from '@tanstack/react-query'
+import { useCurrentAccountId } from '@/lib/account'
+import { prefetchNavigationViews } from '@/lib/queries'
 import Topbar from './Topbar'
 
 export default function AppLayout() {
+  const queryClient = useQueryClient()
+  const currentAccountId = useCurrentAccountId()
+
+  useEffect(() => {
+    if (currentAccountId == null) return
+    const timer = window.setTimeout(() => {
+      prefetchNavigationViews(queryClient, currentAccountId)
+    }, 800)
+    return () => window.clearTimeout(timer)
+  }, [queryClient, currentAccountId])
+
   return (
     <>
       <Topbar />

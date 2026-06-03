@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import ReactECharts from 'echarts-for-react'
 import { AlertTriangle, HelpCircle, SlidersHorizontal, X } from 'lucide-react'
+import EChart from '@/components/shared/EChart'
 import PnlNumber from '@/components/shared/PnlNumber'
 import { formatAmount, formatDatetime, formatPct } from '@/lib/format'
 import {
@@ -569,9 +569,9 @@ export default function Intents() {
             ) : (
               <div className="flex flex-col gap-2">
                 <h3 className="text-base font-semibold mb-3" style={{ color: 'var(--color-text-primary)' }}>收益率走势</h3>
-                <ReactECharts option={returnChartOption} style={{ height: 200 }} notMerge />
+                <EChart option={returnChartOption} style={{ height: 200 }} notMerge />
                 <h3 className="text-base font-semibold mt-6 mb-3" style={{ color: 'var(--color-text-primary)' }}>周换手率</h3>
-                <ReactECharts option={turnoverChartOption} style={{ height: 230 }} notMerge />
+                <EChart option={turnoverChartOption} style={{ height: 230 }} notMerge />
               </div>
             )}
           </div>

@@ -2,6 +2,41 @@
 
 本文件记录各版本的显著变更，格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](docs/版本管理规范.md)。
 
+## [v0.2.2] - 2026-06-03
+
+性能与体验小迭代：前端路由懒加载 + 图表按需加载彻底解决首屏大包，「拉取最新行情」秒级返回不再被限频退避拖死并刷屏，数据库换索引让最新日期查询从秒级降到毫秒级，并调整基准指数集合与同步文案。
+
+> ⚠️ 升级需执行数据库迁移：`alembic upgrade head`（新增 `market_daily_bars` 的 `(instrument_type, trade_date)` 索引，约几十秒，期间请勿点击「拉取最新行情」）。
+
+### Added
+
+- 交易总览「收益率走势」基准指数新增科创50（`000688.SH`）
+
+### Changed
+
+- 默认基准指数集合调整为 上证综指 / 沪深300 / 创业板指 / 科创50（替换原深证成指），前后端配色同步
+- 「拉取最新行情」结果文案优化：换行展示待补基准指数与限额提示（「低积分下 index_daily 限额 1次/小时，请升级积分计划或约 1 小时后再次拉取」）
+- 设置页「行情数据」优先展示本地 `localStorage` 状态缓存，后台检索期间禁用同步按钮并显示「数据检索中」
+- 行情同步指数补齐改为一轮最多补 1 个缺口指数（规避 index_daily 1次/小时 + 5次/天 限额），剩余基准下轮续补
+- 本地日线区间与行情同步说明文案精简
+
+### Performance
+
+- 前端页面改为路由级 `React.lazy` + `Suspense`，ECharts 按需注册组件，Vite/Rolldown 将 `echarts`/`zrender` 拆为独立异步 vendor chunk，消除单 chunk 超 500KB 警告与首屏大包
+- React Query 缓存策略优化：全局 `gcTime` 24h、本地视图 5min `staleTime`、行情类查询挂载后每小时刷新、`AppLayout` 空闲预取核心数据
+- 「拉取最新行情」秒级返回：`index_daily` 与情绪快照撞限频立即放弃、不再做 62s 退避（背景定时采集与下次同步补齐），避免任务长时间 running 触发前端状态轮询刷屏
+- `market_daily_bars` 换索引：删除与唯一约束重复的 `ix_market_daily_bars_lookup`，新增 `(instrument_type, trade_date)`，`MAX(trade_date)` 由全分区扫描（1500 万+行）约 6.7s 降至约 2ms
+
+### Fixed
+
+- 修复 ECharts 在 vite 8 / rolldown 下因 `echarts-for-react` CJS 默认导出 interop 未解包导致的「Element type is invalid … got: object」页面加载失败（改用 ESM 入口 + 防御性解包）
+
+### Docs
+
+- PRD / UX / UI_SPEC / 技术方案 / 后端实现计划与 TODO 同步更新基准指数、缓存策略、懒加载与限频处理的变更记录
+
+---
+
 ## [v0.2.1] - 2026-06-01
 
 补丁版：处理 v0.2.0 复审反馈，修复金额展示小数位、明确文档公式并补充手续费校验测试。

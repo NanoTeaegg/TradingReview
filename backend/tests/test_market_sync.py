@@ -1,5 +1,7 @@
 from datetime import date
 from decimal import Decimal
+import sys
+import types
 
 import pytest
 
@@ -8,8 +10,10 @@ from app.services.market import MarketDataProvider, _retry
 from app.services import market_sync
 from app.services.market_sync import (
     MIN_ROWS_PER_SYNCED_DAY,
+    _build_index_pending_note,
     _has_complete_full_history,
     _is_trade_date_fully_synced,
+    _pending_benchmark_names,
     _run_latest_sync,
     get_full_history_status,
     get_latest_sync_status,
@@ -28,6 +32,22 @@ class _SessionContext:
 
     def __exit__(self, exc_type, exc, tb):
         return False
+
+
+def _install_fake_tushare(monkeypatch):
+    fake_ts = types.ModuleType("tushare")
+    fake_ts.pro_api = lambda *a, **k: object()
+    monkeypatch.setitem(sys.modules, "tushare", fake_ts)
+    return fake_ts
+
+
+def test_default_benchmarks_use_selected_four_indexes():
+    assert DEFAULT_BENCHMARKS == [
+        ("000001.SH", "上证综指"),
+        ("000300.SH", "沪深300"),
+        ("399006.SZ", "创业板指"),
+        ("000688.SH", "科创50"),
+    ]
 
 
 def test_ingest_by_trade_date_stores_full_fields(db, monkeypatch):
@@ -51,7 +71,7 @@ def test_ingest_by_trade_date_stores_full_fields(db, monkeypatch):
                 "amount": 98765.43,
             }
 
-    monkeypatch.setattr("tushare.pro_api", lambda *a, **k: object())
+    _install_fake_tushare(monkeypatch)
     monkeypatch.setattr("app.services.market._retry", lambda fn, **kw: FakeDf())
 
     n = provider.ingest_stock_daily_by_trade_date(date(2026, 5, 29))
@@ -123,7 +143,7 @@ def test_ingest_stock_daily_history_full_fields(db, monkeypatch):
                 "amount": 2000.0,
             }
 
-    monkeypatch.setattr("tushare.pro_api", lambda *a, **k: object())
+    _install_fake_tushare(monkeypatch)
     monkeypatch.setattr("app.services.market._retry", lambda fn, **kw: FakeDf())
 
     n = provider.ingest_stock_daily_history("000001.SZ", date(2026, 1, 1), date(2026, 5, 29))
@@ -197,6 +217,27 @@ def test_index_incremental_skips_when_all_indexes_are_current(db, monkeypatch):
     assert warnings == []
 
 
+def test_index_incremental_attempts_only_one_missing_index_per_run(db, monkeypatch):
+    """低积分账号下 index_daily 一轮只补一个缺口指数，避免成功后下一只撞小时限频。"""
+    calls: list[str] = []
+
+    def ingest_one(self, index_code, start, end):
+        calls.append(index_code)
+        return 1
+
+    monkeypatch.setattr(
+        "app.services.market_sync.MarketDataProvider.ingest_index_daily_range",
+        ingest_one,
+    )
+    monkeypatch.setattr(market_sync.time, "sleep", lambda *_: None)
+
+    index_rows, warnings = sync_index_daily_incremental(db, date(2026, 6, 1))
+
+    assert index_rows == 1
+    assert calls == [DEFAULT_BENCHMARKS[0][0]]
+    assert any("本轮仅补 1 个基准" in w for w in warnings)
+
+
 def test_retry_fast_fails_on_hourly_rate_limit(monkeypatch):
     """按小时限频不应进入 62s 退避重试，直接放弃。"""
     calls = {"n": 0}
@@ -257,17 +298,53 @@ def test_index_incremental_skips_remaining_on_long_period_rate_limit(db, monkeyp
     assert any("限频" in w for w in warnings)
 
 
+def test_pending_benchmark_names_lists_only_lagging_indexes(db):
+    """只有落后/缺失的基准才进入待补列表；已最新的不计入。"""
+    target = date(2026, 6, 3)
+    # 第一个基准补到目标日（最新），其余缺失
+    current_code = DEFAULT_BENCHMARKS[0][0]
+    db.add(
+        MarketDailyBar(
+            instrument_type="index", ts_code=current_code, trade_date=target,
+            close=Decimal("1"), pre_close=Decimal("1"), source="test",
+        )
+    )
+    db.commit()
+
+    pending = _pending_benchmark_names(db, target)
+    names = [name for code, name in DEFAULT_BENCHMARKS]
+    assert DEFAULT_BENCHMARKS[0][1] not in pending  # 已最新的不在待补里
+    assert pending == names[1:]                      # 其余按顺序待补
+
+
+def test_build_index_pending_note_messaging():
+    assert _build_index_pending_note([], False) == ""
+    rate = _build_index_pending_note(["创业板指", "科创50"], True)
+    assert rate.startswith("\n")  # 与上一段换行分隔
+    assert "创业板指" in rate and "科创50" in rate
+    assert "1次/小时" in rate and "升级积分计划" in rate and "1 小时" in rate
+    soft = _build_index_pending_note(["科创50"], False)
+    assert soft.startswith("\n")
+    assert "科创50" in soft and "1次/小时" in soft and "补下一只" in soft
+    assert "升级积分计划" not in soft
+
+
 def test_fetch_index_daily_reraises_rate_limit_but_swallows_others(db, monkeypatch):
     """限频异常需向上抛出（供同步任务跳过其余基准）；其余错误按缺失返回空。"""
     provider = MarketDataProvider(db)
-    monkeypatch.setattr("tushare.pro_api", lambda *a, **k: object())
+    _install_fake_tushare(monkeypatch)
+
+    seen_kw: dict = {}
 
     def rate_limited(fn, **kw):
+        seen_kw.update(kw)
         raise RuntimeError("访问接口(index_daily)频率超限(1次/小时)")
 
     monkeypatch.setattr("app.services.market._retry", rate_limited)
     with pytest.raises(RuntimeError, match="频率超限"):
         provider._fetch_index_daily("000300.SH", date(2026, 1, 1), date(2026, 6, 1))
+    # index_daily 必须 retries=1：撞限频（含分钟级消息）立即放弃，不做 62s 退避
+    assert seen_kw.get("retries") == 1
 
     def other_error(fn, **kw):
         raise RuntimeError("网络抖动")

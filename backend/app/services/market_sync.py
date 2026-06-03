@@ -148,6 +148,7 @@ def sync_index_daily_incremental(db: Session, end: date | None = None) -> tuple[
     end = end or latest_market_date()
     warnings: list[str] = []
     total = 0
+    missing_indexes: list[tuple[str, str, date]] = []
     for index_code, name in DEFAULT_BENCHMARKS:
         max_row = _as_date(
             db.query(func.max(MarketDailyBar.trade_date))
@@ -157,6 +158,14 @@ def sync_index_daily_incremental(db: Session, end: date | None = None) -> tuple[
         start = (max_row + timedelta(days=1)) if max_row else business_data_start(db)
         if start > end:
             continue
+        missing_indexes.append((index_code, name, start))
+
+    # index_daily 限额为 1次/小时 且 5次/天：一轮里补完一个后，同小时内第二个必然被拒，
+    # 而被拒请求也会消耗当日 5 次配额。因此每轮只补一个缺口指数，剩余基准下轮（隔小时）再补。
+    if len(missing_indexes) > 1:
+        warnings.append("指数日线本轮仅补 1 个基准，剩余基准下次同步继续补齐")
+
+    for index_code, name, start in missing_indexes[:1]:
         try:
             n = MarketDataProvider(db).ingest_index_daily_range(index_code, start, end)
             if n:
@@ -164,8 +173,6 @@ def sync_index_daily_incremental(db: Session, end: date | None = None) -> tuple[
                 logger.info("Synced index %s (%s): %s rows", index_code, name, n)
         except Exception as exc:
             logger.warning("Sync index %s failed: %s", index_code, exc)
-            # index_daily 在 120 积分账户为长周期限频（实测「1次/小时」「5次/天」等）：
-            # 62s 节流无法规避，本轮拉不到就跳过其余基准（避免逐个再各等 62s），下一周期再补。
             msg = str(exc)
             if "频率超限" in msg and "分钟" not in msg:
                 warnings.append("指数日线已达 TuShare 限频（小时/天级），本次跳过，稍后自动补齐")
@@ -214,6 +221,38 @@ def _min_stock_bar_date(db: Session) -> date | None:
     )
 
 
+def _pending_benchmark_names(db: Session, end: date) -> list[str]:
+    """截至 end 仍落后/缺失的基准指数名，用于提示用户「还剩哪些待补」。"""
+    pending: list[str] = []
+    for index_code, name in DEFAULT_BENCHMARKS:
+        max_row = _as_date(
+            db.query(func.max(MarketDailyBar.trade_date))
+            .filter(MarketDailyBar.instrument_type == INDEX, MarketDailyBar.ts_code == index_code)
+            .scalar()
+        )
+        start = (max_row + timedelta(days=1)) if max_row else business_data_start(db)
+        if start > end:
+            continue
+        pending.append(name)
+    return pending
+
+
+def _build_index_pending_note(pending_names: list[str], rate_limited: bool) -> str:
+    """根据待补基准与是否撞限频，生成给用户的「还剩什么没拉/请等待」提示。"""
+    if not pending_names:
+        return ""
+    names = "、".join(pending_names)
+    if rate_limited:
+        return (
+            f"\n{names} 指数待补齐：低积分下 TuShare 接口调用频率限制 index_daily 限额 1次/小时，"
+            f"请升级积分计划或约 1 小时后再次「拉取最新行情」"
+        )
+    return (
+        f"\n{names} 指数待补齐：index_daily 限额 1次/小时，"
+        f"请约 1 小时后再次「拉取最新行情」补下一只"
+    )
+
+
 def _build_sync_message(
     *,
     max_date: date | None,
@@ -226,11 +265,11 @@ def _build_sync_message(
     if skip_reason and synced_days > 0:
         return f"{skip_reason}。本地最新日期：{latest}"
     if skip_reason and synced_days == 0 and max_date and max_date >= target_end:
-        return f"{skip_reason}。交易数据已是最新（{latest}）"
+        return f"{skip_reason}。最新日期 {latest}，交易数据已是最新"
     if skip_reason:
         return skip_reason
     if synced_days == 0 and max_date and max_date >= target_end:
-        return f"交易数据已是最新（最新日期 {latest}）"
+        return f"最新日期 {latest}，交易数据已是最新"
     if synced_days > 0:
         return f"已更新 {synced_days} 个交易日，本地最新日期：{latest}"
     if warnings:
@@ -263,9 +302,13 @@ def sync_latest(db: Session) -> dict:
 
     index_rows, index_warnings = sync_index_daily_incremental(db, target_end)
     warnings.extend(index_warnings)
+    pending_index_names = _pending_benchmark_names(db, target_end)
+    index_rate_limited = any("限频" in w for w in index_warnings)
 
     try:
-        fetch_and_store_market_sentiment(db, target_end)
+        # 交互式「拉取最新行情」要求秒级返回：情绪快照走 fast 模式，撞限频立即放弃、
+        # 不做 62s 退避（每日定时采集与下次同步会补），避免前端长时间「拉取中…」狂刷状态轮询。
+        fetch_and_store_market_sentiment(db, target_end, fast=True)
     except Exception as exc:
         logger.warning("Refresh latest sentiment failed: %s", exc)
         warnings.append(f"情绪快照未更新: {exc}")
@@ -279,6 +322,7 @@ def sync_latest(db: Session) -> dict:
         skip_reason=skip_reason,
         warnings=warnings,
     )
+    message += _build_index_pending_note(pending_index_names, index_rate_limited)
 
     return {
         "ok": synced_days > 0 or (max_d is not None and max_d >= target_end),
@@ -316,16 +360,12 @@ def get_latest_sync_status(db: Session) -> dict:
     # running 但线程已死（如服务重启）→ 视为中断，可重新触发
     status = "interrupted" if (raw_status == "running" and not alive) else raw_status
 
-    min_d = _min_stock_bar_date(db)
-    max_d = _max_stock_bar_date(db)
     return {
         "status": status,
         "running": status == "running",
         "message": state.message if state else None,
         "started_at": state.started_at.isoformat() if state and state.started_at else None,
         "finished_at": state.finished_at.isoformat() if state and state.finished_at else None,
-        "min_date": min_d.isoformat() if min_d else None,
-        "max_date": max_d.isoformat() if max_d else None,
     }
 
 

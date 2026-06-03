@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.db import SessionLocal
 from app.models.market_cache import MarketDailyBar, MarketSentimentSnapshot
-from app.services.market import STOCK
+from app.services.market import STOCK, _retry
 from app.services.market_dates import current_market_date
 
 logger = logging.getLogger("tradingreview.sentiment")
@@ -130,12 +130,12 @@ def ensure_recent_market_sentiment_snapshots(days: int = STARTUP_BACKFILL_DAYS) 
                 logger.warning("Backfill market sentiment for %s failed: %s", trade_date, exc)
 
 
-def fetch_and_store_market_sentiment(db: Session, trade_date: date) -> MarketSentimentSnapshot:
+def fetch_and_store_market_sentiment(db: Session, trade_date: date, *, fast: bool = False) -> MarketSentimentSnapshot:
     existing = _get_snapshot(db, trade_date)
     if existing is not None:
         return existing
 
-    payload = _fetch_sentiment_payload(trade_date)
+    payload = _fetch_sentiment_payload(trade_date, fast=fast)
     snapshot = MarketSentimentSnapshot(
         trade_date=trade_date,
         is_trading_day=payload["is_trading_day"],
@@ -176,27 +176,32 @@ async def run_market_sentiment_scheduler(stop_event: asyncio.Event) -> None:
                 logger.warning("Scheduled market sentiment collection failed: %s", exc)
 
 
-def _fetch_sentiment_payload(trade_date: date) -> dict:
+def _fetch_sentiment_payload(trade_date: date, *, fast: bool = False) -> dict:
     # 涨跌家数/成交额属落库数据，统一走 TuShare daily；不再用 akshare 实时回退。
     try:
-        return _fetch_tushare_daily_sentiment(trade_date)
+        return _fetch_tushare_daily_sentiment(trade_date, fast=fast)
     except Exception as exc:
         logger.warning("TuShare sentiment fetch for %s failed: %s", trade_date, exc)
 
     return _empty_sentiment(trade_date, "数据获取失败")
 
 
-def _fetch_tushare_daily_sentiment(trade_date: date) -> dict:
+def _fetch_tushare_daily_sentiment(trade_date: date, *, fast: bool = False) -> dict:
     if not settings.TUSHARE_API_KEY:
         raise RuntimeError("TUSHARE_API_KEY is not configured")
 
     import tushare as ts
 
     pro = ts.pro_api(settings.TUSHARE_API_KEY)
-    df = _call_with_timeout(
-        lambda: pro.daily(trade_date=trade_date.strftime("%Y%m%d")),
-        TUSHARE_FETCH_TIMEOUT_SEC,
-        "tushare daily",
+    # fast=True（交互式同步）：retries=1，撞限频立即放弃、不做 62s 退避，保证秒级返回。
+    df = _retry(
+        lambda: _call_with_timeout(
+            lambda: pro.daily(trade_date=trade_date.strftime("%Y%m%d")),
+            TUSHARE_FETCH_TIMEOUT_SEC,
+            "tushare daily",
+        ),
+        retries=1 if fast else 3,
+        api="daily",
     )
     if df is None or df.empty:
         raise RuntimeError("empty TuShare daily result")

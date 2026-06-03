@@ -318,10 +318,10 @@ def get_positions(db: Session, account_id: Optional[int] = None) -> list[dict]:
 
 
 DEFAULT_BENCHMARKS: list[tuple[str, str]] = [
-    ("000300.SH", "沪深300"),
     ("000001.SH", "上证综指"),
-    ("399001.SZ", "深证成指"),
+    ("000300.SH", "沪深300"),
     ("399006.SZ", "创业板指"),
+    ("000688.SH", "科创50"),
 ]
 
 
