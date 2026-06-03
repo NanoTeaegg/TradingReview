@@ -320,11 +320,13 @@ def test_pending_benchmark_names_lists_only_lagging_indexes(db):
 def test_build_index_pending_note_messaging():
     assert _build_index_pending_note([], False) == ""
     rate = _build_index_pending_note(["创业板指", "科创50"], True)
+    assert rate.startswith("\n")  # 与上一段换行分隔
     assert "创业板指" in rate and "科创50" in rate
-    assert "限频" in rate and "1 小时" in rate
+    assert "1次/小时" in rate and "升级积分计划" in rate and "1 小时" in rate
     soft = _build_index_pending_note(["科创50"], False)
-    assert "科创50" in soft and "1次/小时" in soft
-    assert "限频" not in soft
+    assert soft.startswith("\n")
+    assert "科创50" in soft and "1次/小时" in soft and "补下一只" in soft
+    assert "升级积分计划" not in soft
 
 
 def test_fetch_index_daily_reraises_rate_limit_but_swallows_others(db, monkeypatch):

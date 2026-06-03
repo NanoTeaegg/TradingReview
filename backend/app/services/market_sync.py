@@ -244,11 +244,11 @@ def _build_index_pending_note(pending_names: list[str], rate_limited: bool) -> s
     names = "、".join(pending_names)
     if rate_limited:
         return (
-            f"；基准指数 {names} 待补齐：已达 index_daily 限频（1次/小时、5次/天），"
-            f"请检查 TuShare 积分额度或约 1 小时后再次「拉取最新行情」"
+            f"\n{names} 指数待补齐：低积分下 TuShare 接口调用频率限制 index_daily 限额 1次/小时，"
+            f"请升级积分计划或约 1 小时后再次「拉取最新行情」"
         )
     return (
-        f"；基准指数 {names} 待补齐：index_daily 限额 1次/小时，"
+        f"\n{names} 指数待补齐：index_daily 限额 1次/小时，"
         f"请约 1 小时后再次「拉取最新行情」补下一只"
     )
 
@@ -265,11 +265,11 @@ def _build_sync_message(
     if skip_reason and synced_days > 0:
         return f"{skip_reason}。本地最新日期：{latest}"
     if skip_reason and synced_days == 0 and max_date and max_date >= target_end:
-        return f"{skip_reason}。交易数据已是最新（{latest}）"
+        return f"{skip_reason}。最新日期 {latest}，交易数据已是最新"
     if skip_reason:
         return skip_reason
     if synced_days == 0 and max_date and max_date >= target_end:
-        return f"交易数据已是最新（最新日期 {latest}）"
+        return f"最新日期 {latest}，交易数据已是最新"
     if synced_days > 0:
         return f"已更新 {synced_days} 个交易日，本地最新日期：{latest}"
     if warnings:

@@ -598,7 +598,7 @@ export default function Settings() {
             <span style={{ color: 'var(--color-text-tertiary)' }}>本地日线区间</span>
             <span className="tabular-nums text-right" style={{ color: 'var(--color-text-primary)' }}>
               {historyStatus?.min_date
-                ? `${historyStatus.min_date} ~ ${historyStatus.max_date}（最新 ${historyStatus.max_date}）`
+                ? `${historyStatus.min_date} ~ ${historyStatus.max_date}`
                 : '—'}
             </span>
             <span style={{ color: 'var(--color-text-tertiary)' }}>股票数量 / 已完成</span>
@@ -626,7 +626,7 @@ export default function Settings() {
             <div className="flex flex-col gap-1 pt-3">
               <span className="text-sm font-medium" style={{ color: 'var(--color-text-primary)' }}>行情同步</span>
               <span className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
-                无全量历史时自动执行初始化（按股票补齐 23 年）；已有全量后自动执行按交易日增量（`daily(trade_date)`）。
+                无全量历史时自动执行初始化（按股票补齐 23 年历史数据）；已有全量后自动执行按交易日增量，
                 未收盘时自动同步至上一交易日。
                 {historyStatus?.status === 'interrupted' ? '（上次中断，可点击继续）' : ''}
               </span>
@@ -656,7 +656,7 @@ export default function Settings() {
           </div>
 
           {marketMsg && (
-            <p className="text-xs" style={{ color: marketMsg.ok ? 'var(--color-success)' : 'var(--color-danger)' }}>
+            <p className="text-xs whitespace-pre-line" style={{ color: marketMsg.ok ? 'var(--color-success)' : 'var(--color-danger)' }}>
               {marketMsg.text}
             </p>
           )}
