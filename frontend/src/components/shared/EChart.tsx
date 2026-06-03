@@ -11,6 +11,9 @@ import {
 import { CanvasRenderer } from 'echarts/renderers'
 import type { EChartsReactProps } from 'echarts-for-react'
 
+// 按需注册：当前项目所有图表均为折线图，仅注册折线相关的图表/组件以控制包体。
+// ⚠️ 若新增其它系列或组件（柱状 BarChart、缩放 DataZoomComponent、坐标轴指示 AxisPointer 等），
+// 必须在此处一并注册，否则对应 option 在运行时不生效（缺组件 echarts 只告警、缺图表类型则报错）。
 echarts.use([
   LineChart,
   GridComponent,
