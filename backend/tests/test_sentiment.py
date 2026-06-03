@@ -95,6 +95,31 @@ def test_tushare_daily_sentiment_uses_shared_retry(monkeypatch):
     assert result["flat_count"] == 1
 
 
+def test_tushare_daily_sentiment_fast_mode_disables_backoff(monkeypatch):
+    """交互式 fast 模式：daily 仅尝试一次（retries=1），撞限频立即放弃不退避 62s。"""
+    fake_ts = types.ModuleType("tushare")
+    fake_ts.pro_api = lambda *args, **kwargs: object()
+    monkeypatch.setitem(sys.modules, "tushare", fake_ts)
+    monkeypatch.setattr(sentiment.settings, "TUSHARE_API_KEY", "token")
+    monkeypatch.setattr(sentiment, "_fetch_limit_counts", lambda trade_date: (0, 0))
+
+    seen: dict[str, int] = {}
+
+    def fake_retry(fn, **kwargs):
+        seen["retries"] = kwargs.get("retries", 3)
+        raise RuntimeError("访问接口(daily)频率超限(500次/分钟)")
+
+    monkeypatch.setattr(sentiment, "_retry", fake_retry)
+
+    # fast=True → retries=1（不退避）；默认 → retries=3
+    with pytest.raises(RuntimeError):
+        sentiment._fetch_tushare_daily_sentiment(date(2026, 6, 1), fast=True)
+    assert seen["retries"] == 1
+    with pytest.raises(RuntimeError):
+        sentiment._fetch_tushare_daily_sentiment(date(2026, 6, 1))
+    assert seen["retries"] == 3
+
+
 def test_latest_market_date_uses_friday_on_weekends():
     assert sentiment.latest_market_date(date(2026, 5, 30)) == date(2026, 5, 29)
     assert sentiment.latest_market_date(date(2026, 5, 31)) == date(2026, 5, 29)

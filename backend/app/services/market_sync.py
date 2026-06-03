@@ -160,8 +160,8 @@ def sync_index_daily_incremental(db: Session, end: date | None = None) -> tuple[
             continue
         missing_indexes.append((index_code, name, start))
 
-    # 低积分 TuShare 账号的 index_daily 常见限制是 1次/小时或 5次/天。
-    # 一轮只补一个缺口指数，避免成功一个后立刻请求下一只指数，白等 62s 后仍然撞限频。
+    # index_daily 限额为 1次/小时 且 5次/天：一轮里补完一个后，同小时内第二个必然被拒，
+    # 而被拒请求也会消耗当日 5 次配额。因此每轮只补一个缺口指数，剩余基准下轮（隔小时）再补。
     if len(missing_indexes) > 1:
         warnings.append("指数日线本轮仅补 1 个基准，剩余基准下次同步继续补齐")
 
@@ -173,8 +173,6 @@ def sync_index_daily_incremental(db: Session, end: date | None = None) -> tuple[
                 logger.info("Synced index %s (%s): %s rows", index_code, name, n)
         except Exception as exc:
             logger.warning("Sync index %s failed: %s", index_code, exc)
-            # index_daily 在 120 积分账户为长周期限频（实测「1次/小时」「5次/天」等）：
-            # 62s 节流无法规避，本轮拉不到就跳过其余基准（避免逐个再各等 62s），下一周期再补。
             msg = str(exc)
             if "频率超限" in msg and "分钟" not in msg:
                 warnings.append("指数日线已达 TuShare 限频（小时/天级），本次跳过，稍后自动补齐")
@@ -220,6 +218,38 @@ def _min_stock_bar_date(db: Session) -> date | None:
         db.query(func.min(MarketDailyBar.trade_date))
         .filter(MarketDailyBar.instrument_type == STOCK)
         .scalar()
+    )
+
+
+def _pending_benchmark_names(db: Session, end: date) -> list[str]:
+    """截至 end 仍落后/缺失的基准指数名，用于提示用户「还剩哪些待补」。"""
+    pending: list[str] = []
+    for index_code, name in DEFAULT_BENCHMARKS:
+        max_row = _as_date(
+            db.query(func.max(MarketDailyBar.trade_date))
+            .filter(MarketDailyBar.instrument_type == INDEX, MarketDailyBar.ts_code == index_code)
+            .scalar()
+        )
+        start = (max_row + timedelta(days=1)) if max_row else business_data_start(db)
+        if start > end:
+            continue
+        pending.append(name)
+    return pending
+
+
+def _build_index_pending_note(pending_names: list[str], rate_limited: bool) -> str:
+    """根据待补基准与是否撞限频，生成给用户的「还剩什么没拉/请等待」提示。"""
+    if not pending_names:
+        return ""
+    names = "、".join(pending_names)
+    if rate_limited:
+        return (
+            f"；基准指数 {names} 待补齐：已达 index_daily 限频（1次/小时、5次/天），"
+            f"请检查 TuShare 积分额度或约 1 小时后再次「拉取最新行情」"
+        )
+    return (
+        f"；基准指数 {names} 待补齐：index_daily 限额 1次/小时，"
+        f"请约 1 小时后再次「拉取最新行情」补下一只"
     )
 
 
@@ -272,9 +302,13 @@ def sync_latest(db: Session) -> dict:
 
     index_rows, index_warnings = sync_index_daily_incremental(db, target_end)
     warnings.extend(index_warnings)
+    pending_index_names = _pending_benchmark_names(db, target_end)
+    index_rate_limited = any("限频" in w for w in index_warnings)
 
     try:
-        fetch_and_store_market_sentiment(db, target_end)
+        # 交互式「拉取最新行情」要求秒级返回：情绪快照走 fast 模式，撞限频立即放弃、
+        # 不做 62s 退避（每日定时采集与下次同步会补），避免前端长时间「拉取中…」狂刷状态轮询。
+        fetch_and_store_market_sentiment(db, target_end, fast=True)
     except Exception as exc:
         logger.warning("Refresh latest sentiment failed: %s", exc)
         warnings.append(f"情绪快照未更新: {exc}")
@@ -288,6 +322,7 @@ def sync_latest(db: Session) -> dict:
         skip_reason=skip_reason,
         warnings=warnings,
     )
+    message += _build_index_pending_note(pending_index_names, index_rate_limited)
 
     return {
         "ok": synced_days > 0 or (max_d is not None and max_d >= target_end),

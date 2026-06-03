@@ -10,8 +10,10 @@ from app.services.market import MarketDataProvider, _retry
 from app.services import market_sync
 from app.services.market_sync import (
     MIN_ROWS_PER_SYNCED_DAY,
+    _build_index_pending_note,
     _has_complete_full_history,
     _is_trade_date_fully_synced,
+    _pending_benchmark_names,
     _run_latest_sync,
     get_full_history_status,
     get_latest_sync_status,
@@ -296,17 +298,51 @@ def test_index_incremental_skips_remaining_on_long_period_rate_limit(db, monkeyp
     assert any("限频" in w for w in warnings)
 
 
+def test_pending_benchmark_names_lists_only_lagging_indexes(db):
+    """只有落后/缺失的基准才进入待补列表；已最新的不计入。"""
+    target = date(2026, 6, 3)
+    # 第一个基准补到目标日（最新），其余缺失
+    current_code = DEFAULT_BENCHMARKS[0][0]
+    db.add(
+        MarketDailyBar(
+            instrument_type="index", ts_code=current_code, trade_date=target,
+            close=Decimal("1"), pre_close=Decimal("1"), source="test",
+        )
+    )
+    db.commit()
+
+    pending = _pending_benchmark_names(db, target)
+    names = [name for code, name in DEFAULT_BENCHMARKS]
+    assert DEFAULT_BENCHMARKS[0][1] not in pending  # 已最新的不在待补里
+    assert pending == names[1:]                      # 其余按顺序待补
+
+
+def test_build_index_pending_note_messaging():
+    assert _build_index_pending_note([], False) == ""
+    rate = _build_index_pending_note(["创业板指", "科创50"], True)
+    assert "创业板指" in rate and "科创50" in rate
+    assert "限频" in rate and "1 小时" in rate
+    soft = _build_index_pending_note(["科创50"], False)
+    assert "科创50" in soft and "1次/小时" in soft
+    assert "限频" not in soft
+
+
 def test_fetch_index_daily_reraises_rate_limit_but_swallows_others(db, monkeypatch):
     """限频异常需向上抛出（供同步任务跳过其余基准）；其余错误按缺失返回空。"""
     provider = MarketDataProvider(db)
     _install_fake_tushare(monkeypatch)
 
+    seen_kw: dict = {}
+
     def rate_limited(fn, **kw):
+        seen_kw.update(kw)
         raise RuntimeError("访问接口(index_daily)频率超限(1次/小时)")
 
     monkeypatch.setattr("app.services.market._retry", rate_limited)
     with pytest.raises(RuntimeError, match="频率超限"):
         provider._fetch_index_daily("000300.SH", date(2026, 1, 1), date(2026, 6, 1))
+    # index_daily 必须 retries=1：撞限频（含分钟级消息）立即放弃，不做 62s 退避
+    assert seen_kw.get("retries") == 1
 
     def other_error(fn, **kw):
         raise RuntimeError("网络抖动")

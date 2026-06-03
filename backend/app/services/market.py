@@ -389,12 +389,15 @@ class MarketDataProvider:
         try:
             import tushare as ts
             pro = ts.pro_api()
+            # index_daily 为小时级限频：撞限频（无论分钟/小时级消息）都立即放弃，
+            # 不做 62s 退避——等 62s 后小时级配额仍未恢复，纯属白等并拖住交互式同步。
             df = _retry(
                 lambda: pro.index_daily(
                     ts_code=index_code,
                     start_date=start.strftime("%Y%m%d"),
                     end_date=end.strftime("%Y%m%d"),
                 ),
+                retries=1,
                 api="index_daily",
             )
         except Exception as e:
